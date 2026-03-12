@@ -29,15 +29,12 @@ export type VehicleType =
 type Accent = {
   panelBg: string;
   panelBorder: string;
-
   selBg: string;
   selBorder: string;
   selRing: string;
   selChip: string;
   selIcon: string;
   selText: string;
-  selSubText: string;
-
   primaryBtn: string;
   primaryBtnHover: string;
 };
@@ -45,7 +42,6 @@ type Accent = {
 type VehicleTypeUI = {
   type: VehicleType;
   label: string;
-  hint: string;
   Icon: React.ComponentType<{ className?: string }>;
   accent: Accent;
 };
@@ -54,7 +50,6 @@ const VEHICLE_TYPES: VehicleTypeUI[] = [
   {
     type: "CAR",
     label: "Carro",
-    hint: "Automóvil",
     Icon: CarFront,
     accent: {
       panelBg: "from-sky-50/80 to-white",
@@ -65,7 +60,6 @@ const VEHICLE_TYPES: VehicleTypeUI[] = [
       selChip: "bg-sky-600",
       selIcon: "text-sky-700",
       selText: "text-sky-950",
-      selSubText: "text-sky-900/70",
       primaryBtn: "bg-sky-600",
       primaryBtnHover: "hover:bg-sky-700",
     },
@@ -73,7 +67,6 @@ const VEHICLE_TYPES: VehicleTypeUI[] = [
   {
     type: "MOTO",
     label: "Moto",
-    hint: "Motocicleta",
     Icon: Bike,
     accent: {
       panelBg: "from-emerald-50/80 to-white",
@@ -84,7 +77,6 @@ const VEHICLE_TYPES: VehicleTypeUI[] = [
       selChip: "bg-emerald-600",
       selIcon: "text-emerald-700",
       selText: "text-emerald-950",
-      selSubText: "text-emerald-900/70",
       primaryBtn: "bg-emerald-600",
       primaryBtnHover: "hover:bg-emerald-700",
     },
@@ -92,7 +84,6 @@ const VEHICLE_TYPES: VehicleTypeUI[] = [
   {
     type: "TRUCK",
     label: "Camión",
-    hint: "Carga",
     Icon: Truck,
     accent: {
       panelBg: "from-indigo-50/80 to-white",
@@ -103,7 +94,6 @@ const VEHICLE_TYPES: VehicleTypeUI[] = [
       selChip: "bg-indigo-600",
       selIcon: "text-indigo-700",
       selText: "text-indigo-950",
-      selSubText: "text-indigo-900/70",
       primaryBtn: "bg-indigo-600",
       primaryBtnHover: "hover:bg-indigo-700",
     },
@@ -111,7 +101,6 @@ const VEHICLE_TYPES: VehicleTypeUI[] = [
   {
     type: "BUS",
     label: "Bus",
-    hint: "Transporte",
     Icon: Bus,
     accent: {
       panelBg: "from-amber-50/80 to-white",
@@ -122,7 +111,6 @@ const VEHICLE_TYPES: VehicleTypeUI[] = [
       selChip: "bg-amber-600",
       selIcon: "text-amber-700",
       selText: "text-amber-950",
-      selSubText: "text-amber-900/70",
       primaryBtn: "bg-amber-600",
       primaryBtnHover: "hover:bg-amber-700",
     },
@@ -130,7 +118,6 @@ const VEHICLE_TYPES: VehicleTypeUI[] = [
   {
     type: "TRACTOMULA",
     label: "Tractomula",
-    hint: "Pesado",
     Icon: Tractor,
     accent: {
       panelBg: "from-violet-50/80 to-white",
@@ -141,7 +128,6 @@ const VEHICLE_TYPES: VehicleTypeUI[] = [
       selChip: "bg-violet-600",
       selIcon: "text-violet-700",
       selText: "text-violet-950",
-      selSubText: "text-violet-900/70",
       primaryBtn: "bg-violet-600",
       primaryBtnHover: "hover:bg-violet-700",
     },
@@ -149,7 +135,6 @@ const VEHICLE_TYPES: VehicleTypeUI[] = [
   {
     type: "OTHER",
     label: "Otro",
-    hint: "Especial",
     Icon: HelpCircle,
     accent: {
       panelBg: "from-zinc-50/80 to-white",
@@ -160,7 +145,6 @@ const VEHICLE_TYPES: VehicleTypeUI[] = [
       selChip: "bg-zinc-800",
       selIcon: "text-zinc-700",
       selText: "text-zinc-950",
-      selSubText: "text-zinc-700",
       primaryBtn: "bg-zinc-900",
       primaryBtnHover: "hover:bg-zinc-800",
     },
@@ -242,13 +226,8 @@ export function EntryPanel({
     : [initialState, action, false];
 
   React.useEffect(() => {
-    plateRef.current?.focus();
-  }, [vehicleType]);
-
-  React.useEffect(() => {
     if (state?.last?.ok) {
       setPlate("");
-      requestAnimationFrame(() => plateRef.current?.focus());
     }
   }, [state?.last]);
 
@@ -268,17 +247,17 @@ export function EntryPanel({
         "bg-gradient-to-b",
         selectedMeta.accent.panelBg,
         selectedMeta.accent.panelBorder,
-        "p-4 sm:p-5",
+        "p-3 sm:p-4",
         className
       )}
       aria-label="Módulo de entrada"
     >
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-[17px] font-semibold tracking-tight text-zinc-950 sm:text-lg">
+          <h2 className="text-[16px] font-semibold tracking-tight text-zinc-950 sm:text-lg">
             {title}
           </h2>
-          <p className="mt-1 text-[13px] leading-5 text-zinc-600 sm:text-sm">
+          <p className="mt-1 text-[12px] leading-5 text-zinc-600 sm:text-sm">
             {description}
           </p>
         </div>
@@ -297,9 +276,9 @@ export function EntryPanel({
         </div>
       </header>
 
-      <div className="mt-4">
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
-          {VEHICLE_TYPES.map(({ type, label, hint, Icon, accent }) => {
+      <div className="mt-3">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          {VEHICLE_TYPES.map(({ type, label, Icon, accent }) => {
             const selected = type === vehicleType;
 
             return (
@@ -308,7 +287,7 @@ export function EntryPanel({
                 type="button"
                 onClick={() => setVehicleType(type)}
                 className={cx(
-                  "group relative min-h-[92px] rounded-[22px] border p-2.5 text-left transition-all duration-200",
+                  "group relative min-h-[78px] rounded-[20px] border p-2.5 text-left transition-all duration-200",
                   "focus:outline-none focus:ring-4",
                   selected
                     ? cx(
@@ -321,17 +300,17 @@ export function EntryPanel({
                 )}
                 aria-pressed={selected}
               >
-                <div className="flex h-full flex-col">
+                <div className="flex h-full flex-col justify-between">
                   <div className="flex items-start justify-between gap-2">
                     <div
                       className={cx(
-                        "grid size-10 shrink-0 place-items-center rounded-2xl border bg-white shadow-sm",
+                        "grid size-9 shrink-0 place-items-center rounded-2xl border bg-white shadow-sm",
                         selected ? accent.selBorder : "border-zinc-200"
                       )}
                     >
                       <Icon
                         className={cx(
-                          "size-[18px]",
+                          "size-[17px]",
                           selected ? accent.selIcon : "text-zinc-600"
                         )}
                       />
@@ -357,7 +336,7 @@ export function EntryPanel({
                     </div>
                   </div>
 
-                  <div className="mt-3 min-w-0">
+                  <div className="mt-2 min-w-0">
                     <div
                       className={cx(
                         "truncate text-[13px] font-semibold leading-4 sm:text-sm",
@@ -365,14 +344,6 @@ export function EntryPanel({
                       )}
                     >
                       {label}
-                    </div>
-                    <div
-                      className={cx(
-                        "mt-1 truncate text-[11px] leading-4 sm:text-xs",
-                        selected ? accent.selSubText : "text-zinc-500"
-                      )}
-                    >
-                      {hint}
                     </div>
                   </div>
                 </div>
@@ -382,12 +353,12 @@ export function EntryPanel({
         </div>
       </div>
 
-      <form action={formAction} className="mt-4 grid gap-4">
+      <form action={formAction} className="mt-3 grid gap-3">
         <input type="hidden" name="vehicleType" value={vehicleType} />
         <input type="hidden" name="clientTimeZone" value="America/Bogota" />
         <input type="hidden" name="stationId" value={stationId} />
 
-        <div className="rounded-[24px] border border-zinc-200/80 bg-white/80 p-3.5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] sm:p-4">
+        <div className="rounded-[22px] border border-zinc-200/80 bg-white/80 p-3 shadow-[0_1px_2px_rgba(0,0,0,0.03)] sm:p-4">
           <div className="flex items-center justify-between gap-3">
             <label
               htmlFor="plate"
@@ -411,7 +382,7 @@ export function EntryPanel({
             </div>
           </div>
 
-          <div className="mt-2.5 relative">
+          <div className="mt-2 relative">
             <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
               <selectedMeta.Icon
                 className={cx("size-5", selectedMeta.accent.selIcon)}
@@ -430,7 +401,7 @@ export function EntryPanel({
               value={plate}
               onChange={(e) => setPlate(normalizePlateForInput(e.target.value))}
               className={cx(
-                "h-12 w-full rounded-[18px] border bg-white pl-11 pr-4",
+                "h-11 w-full rounded-[16px] border bg-white pl-11 pr-4",
                 "text-[15px] font-semibold tracking-[0.08em] text-zinc-900",
                 "placeholder:tracking-normal placeholder:text-zinc-400",
                 "shadow-sm transition",
@@ -442,13 +413,13 @@ export function EntryPanel({
           </div>
 
           <p className="mt-2 text-[11px] leading-4 text-zinc-500 sm:text-xs">
-            Se guarda en UTC en el servidor y se muestra en hora Colombia.
+            Se guarda en UTC y se muestra en hora Colombia.
           </p>
         </div>
 
         <div aria-live="polite" className="grid gap-3">
           {showSuccess ? (
-            <div className="flex items-start gap-2 rounded-[22px] border border-emerald-200 bg-emerald-50 p-3">
+            <div className="flex items-start gap-2 rounded-[20px] border border-emerald-200 bg-emerald-50 p-3">
               <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-700" />
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-emerald-900">
@@ -470,7 +441,7 @@ export function EntryPanel({
           ) : null}
 
           {showError ? (
-            <div className="flex items-start gap-2 rounded-[22px] border border-amber-200 bg-amber-50 p-3">
+            <div className="flex items-start gap-2 rounded-[20px] border border-amber-200 bg-amber-50 p-3">
               <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-700" />
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-amber-900">
@@ -488,7 +459,7 @@ export function EntryPanel({
           type="submit"
           disabled={!canSubmit}
           className={cx(
-            "inline-flex h-12 w-full items-center justify-center gap-2 rounded-[18px] px-5",
+            "inline-flex h-11 w-full items-center justify-center gap-2 rounded-[16px] px-5",
             "text-sm font-semibold shadow-sm transition sm:text-base",
             "focus:outline-none focus:ring-4 focus:ring-zinc-200",
             !canSubmit
