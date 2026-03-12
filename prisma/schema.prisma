@@ -1,0 +1,364 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/** =========================
+ *  Auth.js / NextAuth models
+ *  ========================= */
+
+model User {
+  id              String    @id @default(cuid())
+  name            String?
+  email           String?   @unique
+  emailVerified   DateTime?
+  image           String?
+
+  role            UserRole  @default(OPERATOR)
+  phone           String?
+  passwordHash    String?
+  isActive        Boolean   @default(true)
+
+  accounts        Account[]
+  sessions        Session[]
+
+  sessionsCreated ParkingSession[] @relation("sessions_created")
+  sessionsClosed  ParkingSession[] @relation("sessions_closed")
+  payments        Payment[]
+  shifts          Shift[]
+
+  // Print jobs created by operator/admin (optional audit)
+  printJobsCreated PrintJob[] @relation("print_jobs_created")
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+enum UserRole {
+  ADMIN
+  OPERATOR
+}
+
+model Account {
+  id                String @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user              User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+/** =========================
+ *  Tu dominio (Parqueadero)
+ *  ========================= */
+
+enum VehicleType {
+  CAR
+  MOTO
+  TRUCK
+  BUS
+  TRACTOMULA
+  OTHER
+}
+
+enum SessionStatus {
+  IN
+  OUT
+  CANCELED
+}
+
+enum PricingUnit {
+  HOUR
+  SHIFT
+  MANUAL
+  SUBSCRIPTION
+}
+
+enum PaymentMethod {
+  CASH
+  NEQUI
+  TRANSFER
+  OTHER
+}
+
+enum PaymentStatus {
+  COMPLETED
+  VOIDED
+}
+
+model Shift {
+  id         String   @id @default(cuid())
+  operatorId String?
+  operator   User?    @relation(fields: [operatorId], references: [id], onDelete: SetNull)
+
+  startedAt  DateTime @default(now())
+  endedAt    DateTime?
+
+  notes      String?
+
+  sessions   ParkingSession[]
+  payments   Payment[]
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([startedAt])
+  @@index([endedAt])
+  @@index([operatorId, startedAt])
+}
+
+model Customer {
+  id            String   @id @default(cuid())
+  fullName      String
+  document      String?
+  phone         String?
+  notes         String?
+
+  subscriptions Subscription[]
+  vehicles      Vehicle[] @relation("customer_vehicles")
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([document])
+  @@index([phone])
+}
+
+model Vehicle {
+  id              String      @id @default(cuid())
+  plate           String
+  plateNormalized String
+  type            VehicleType @default(CAR)
+
+  customerId      String?
+  customer        Customer?   @relation("customer_vehicles", fields: [customerId], references: [id], onDelete: SetNull)
+
+  notes           String?
+
+  sessions        ParkingSession[]
+  subscriptions   Subscription[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([plateNormalized, type])
+  @@index([plateNormalized])
+  @@index([customerId])
+}
+
+model Subscription {
+  id             String    @id @default(cuid())
+
+  vehicleId      String
+  vehicle        Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+
+  customerId     String?
+  customer       Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  startAt        DateTime
+  endAt          DateTime
+  amount         Int
+  isActive       Boolean   @default(true)
+
+  notes          String?
+
+  sessions       ParkingSession[]
+  payments       Payment[]
+
+  // inverse relation for PrintJob.subscription
+  printJobs      PrintJob[]
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([vehicleId])
+  @@index([customerId])
+  @@index([isActive, endAt])
+}
+
+model ParkingSession {
+  id              String        @id @default(cuid())
+
+  /**
+   * ticketCode:
+   * - identificador interno/largo
+   * - lo mantenemos por compatibilidad y trazabilidad
+   */
+  ticketCode      String        @unique @default(cuid())
+
+  /**
+   * scanCode:
+   * - codigo corto y unico para impresion / lector
+   * - este sera el que imprimiremos en barcode
+   */
+  scanCode        String        @unique @db.VarChar(16)
+
+  status          SessionStatus @default(IN)
+
+  vehicleId       String
+  vehicle         Vehicle       @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+
+  entryAt         DateTime      @default(now())
+  exitAt          DateTime?
+
+  pricingUnit     PricingUnit   @default(MANUAL)
+  suggestedAmount Int           @default(0)
+  finalAmount     Int           @default(0)
+  amountPaid      Int           @default(0)
+  pricingMeta     Json?
+
+  subscriptionId  String?
+  subscription    Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  createdById     String?
+  createdBy       User?         @relation("sessions_created", fields: [createdById], references: [id], onDelete: SetNull)
+
+  closedById      String?
+  closedBy        User?         @relation("sessions_closed", fields: [closedById], references: [id], onDelete: SetNull)
+
+  shiftId         String?
+  shift           Shift?        @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
+  notes           String?
+
+  payments        Payment[]
+  printJobs       PrintJob[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status, entryAt])
+  @@index([vehicleId, status])
+  @@index([shiftId])
+  @@index([subscriptionId])
+  @@index([scanCode])
+}
+
+model Payment {
+  id             String          @id @default(cuid())
+  status         PaymentStatus   @default(COMPLETED)
+
+  method         PaymentMethod
+  amount         Int
+  paidAt         DateTime        @default(now())
+
+  sessionId      String?
+  session        ParkingSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  subscriptionId String?
+  subscription   Subscription?   @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  operatorId     String?
+  operator       User?           @relation(fields: [operatorId], references: [id], onDelete: SetNull)
+
+  shiftId        String?
+  shift          Shift?          @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
+  reference      String?
+  notes          String?
+
+  printJobs      PrintJob[]
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([paidAt])
+  @@index([method, paidAt])
+  @@index([sessionId])
+  @@index([subscriptionId])
+  @@index([shiftId])
+}
+
+/** =========================
+ *  Printing (near real-time)
+ *  ========================= */
+
+enum PrintJobType {
+  ENTRY_TICKET
+  EXIT_RECEIPT
+  SUBSCRIPTION_RECEIPT
+}
+
+enum PrintJobStatus {
+  PENDING
+  PRINTING
+  PRINTED
+  FAILED
+  CANCELED
+}
+
+model PrintJob {
+  id             String         @id @default(cuid())
+  type           PrintJobType
+  status         PrintJobStatus @default(PENDING)
+
+  stationId      String
+
+  sessionId      String?
+  session        ParkingSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  paymentId      String?
+  payment        Payment?       @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  subscriptionId String?
+  subscription   Subscription?  @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  payload        Json
+  copies         Int            @default(1)
+  priority       Int            @default(0)
+
+  attempts       Int            @default(0)
+  maxAttempts    Int            @default(5)
+  lockedAt       DateTime?
+  lockedBy       String?
+  lastError      String?
+
+  printedAt      DateTime?
+
+  createdById    String?
+  createdBy      User?          @relation("print_jobs_created", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([stationId, status, createdAt])
+  @@index([status, createdAt])
+  @@index([type, status, createdAt])
+  @@index([sessionId])
+  @@index([paymentId])
+  @@index([subscriptionId])
+}
