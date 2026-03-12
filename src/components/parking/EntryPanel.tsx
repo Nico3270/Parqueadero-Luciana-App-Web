@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { CreateEntryResult, EntryActionState } from "@/actions/parking/createEntryAction";
 
-
 /**
  * Tipos del dominio (coinciden con Prisma enum VehicleType)
  * Se muestran en español, pero se envían como el enum real.
@@ -58,11 +57,11 @@ const VEHICLE_TYPES: VehicleTypeUI[] = [
     hint: "Automóvil",
     Icon: CarFront,
     accent: {
-      panelBg: "from-sky-50/70 to-white",
+      panelBg: "from-sky-50/80 to-white",
       panelBorder: "border-sky-200/70",
-      selBg: "bg-sky-100",
-      selBorder: "border-sky-300",
-      selRing: "ring-sky-400",
+      selBg: "bg-sky-50",
+      selBorder: "border-sky-400",
+      selRing: "ring-sky-300",
       selChip: "bg-sky-600",
       selIcon: "text-sky-700",
       selText: "text-sky-950",
@@ -77,11 +76,11 @@ const VEHICLE_TYPES: VehicleTypeUI[] = [
     hint: "Motocicleta",
     Icon: Bike,
     accent: {
-      panelBg: "from-emerald-50/70 to-white",
+      panelBg: "from-emerald-50/80 to-white",
       panelBorder: "border-emerald-200/70",
-      selBg: "bg-emerald-100",
-      selBorder: "border-emerald-300",
-      selRing: "ring-emerald-400",
+      selBg: "bg-emerald-50",
+      selBorder: "border-emerald-400",
+      selRing: "ring-emerald-300",
       selChip: "bg-emerald-600",
       selIcon: "text-emerald-700",
       selText: "text-emerald-950",
@@ -96,11 +95,11 @@ const VEHICLE_TYPES: VehicleTypeUI[] = [
     hint: "Carga",
     Icon: Truck,
     accent: {
-      panelBg: "from-indigo-50/70 to-white",
+      panelBg: "from-indigo-50/80 to-white",
       panelBorder: "border-indigo-200/70",
-      selBg: "bg-indigo-100",
-      selBorder: "border-indigo-300",
-      selRing: "ring-indigo-400",
+      selBg: "bg-indigo-50",
+      selBorder: "border-indigo-400",
+      selRing: "ring-indigo-300",
       selChip: "bg-indigo-600",
       selIcon: "text-indigo-700",
       selText: "text-indigo-950",
@@ -115,11 +114,11 @@ const VEHICLE_TYPES: VehicleTypeUI[] = [
     hint: "Transporte",
     Icon: Bus,
     accent: {
-      panelBg: "from-amber-50/70 to-white",
+      panelBg: "from-amber-50/80 to-white",
       panelBorder: "border-amber-200/70",
-      selBg: "bg-amber-100",
-      selBorder: "border-amber-300",
-      selRing: "ring-amber-400",
+      selBg: "bg-amber-50",
+      selBorder: "border-amber-400",
+      selRing: "ring-amber-300",
       selChip: "bg-amber-600",
       selIcon: "text-amber-700",
       selText: "text-amber-950",
@@ -134,11 +133,11 @@ const VEHICLE_TYPES: VehicleTypeUI[] = [
     hint: "Pesado",
     Icon: Tractor,
     accent: {
-      panelBg: "from-violet-50/70 to-white",
+      panelBg: "from-violet-50/80 to-white",
       panelBorder: "border-violet-200/70",
-      selBg: "bg-violet-100",
-      selBorder: "border-violet-300",
-      selRing: "ring-violet-400",
+      selBg: "bg-violet-50",
+      selBorder: "border-violet-400",
+      selRing: "ring-violet-300",
       selChip: "bg-violet-600",
       selIcon: "text-violet-700",
       selText: "text-violet-950",
@@ -153,15 +152,15 @@ const VEHICLE_TYPES: VehicleTypeUI[] = [
     hint: "Especial",
     Icon: HelpCircle,
     accent: {
-      panelBg: "from-zinc-50/70 to-white",
+      panelBg: "from-zinc-50/80 to-white",
       panelBorder: "border-zinc-200/70",
-      selBg: "bg-zinc-100",
-      selBorder: "border-zinc-300",
-      selRing: "ring-zinc-400",
+      selBg: "bg-zinc-50",
+      selBorder: "border-zinc-400",
+      selRing: "ring-zinc-300",
       selChip: "bg-zinc-800",
-      selIcon: "text-zinc-800",
+      selIcon: "text-zinc-700",
       selText: "text-zinc-950",
-      selSubText: "text-zinc-900/70",
+      selSubText: "text-zinc-700",
       primaryBtn: "bg-zinc-900",
       primaryBtnHover: "hover:bg-zinc-800",
     },
@@ -265,37 +264,41 @@ export function EntryPanel({
   return (
     <section
       className={cx(
-        "rounded-2xl border shadow-sm",
+        "rounded-[26px] border shadow-[0_10px_30px_rgba(0,0,0,0.04)]",
         "bg-gradient-to-b",
         selectedMeta.accent.panelBg,
         selectedMeta.accent.panelBorder,
-        "p-4 sm:p-6",
+        "p-4 sm:p-5",
         className
       )}
       aria-label="Módulo de entrada"
     >
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-base font-semibold tracking-tight text-zinc-900 sm:text-lg">
+          <h2 className="text-[17px] font-semibold tracking-tight text-zinc-950 sm:text-lg">
             {title}
           </h2>
-          <p className="mt-1 text-sm text-zinc-600">{description}</p>
+          <p className="mt-1 text-[13px] leading-5 text-zinc-600 sm:text-sm">
+            {description}
+          </p>
         </div>
 
         <div
           className={cx(
-            "hidden sm:inline-flex items-center gap-2 rounded-full border bg-white/70 px-3 py-1 text-xs font-semibold",
+            "hidden sm:inline-flex items-center gap-2 rounded-full border bg-white/80 px-3 py-1.5 text-xs font-semibold shadow-sm",
             selectedMeta.accent.selBorder,
             selectedMeta.accent.selText
           )}
         >
-          <selectedMeta.Icon className={cx("size-4", selectedMeta.accent.selIcon)} />
+          <selectedMeta.Icon
+            className={cx("size-4", selectedMeta.accent.selIcon)}
+          />
           {selectedMeta.label}
         </div>
       </header>
 
       <div className="mt-4">
-        <div className="flex flex-wrap gap-3">
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
           {VEHICLE_TYPES.map(({ type, label, hint, Icon, accent }) => {
             const selected = type === vehicleType;
 
@@ -305,38 +308,59 @@ export function EntryPanel({
                 type="button"
                 onClick={() => setVehicleType(type)}
                 className={cx(
-                  "basis-[170px] sm:basis-[200px] xl:basis-0 xl:flex-1",
-                  "w-full",
-                  "relative rounded-2xl border p-3 text-left transition",
-                  "shadow-[0_1px_0_rgba(0,0,0,0.03)]",
+                  "group relative min-h-[92px] rounded-[22px] border p-2.5 text-left transition-all duration-200",
                   "focus:outline-none focus:ring-4",
                   selected
                     ? cx(
+                        "shadow-[0_8px_24px_rgba(0,0,0,0.06)]",
                         accent.selBg,
                         accent.selBorder,
-                        "ring-2",
-                        accent.selRing,
-                        "shadow-md",
-                        "scale-[1.01]"
+                        accent.selRing
                       )
-                    : "border-zinc-200 bg-white/80 hover:bg-white"
+                    : "border-zinc-200/90 bg-white/85 shadow-[0_1px_2px_rgba(0,0,0,0.03)] hover:bg-white"
                 )}
                 aria-pressed={selected}
               >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={cx(
-                      "grid size-11 place-items-center rounded-xl border bg-white shadow-sm",
-                      selected ? accent.selBorder : "border-zinc-200"
-                    )}
-                  >
-                    <Icon className={cx("size-5", selected ? accent.selIcon : "text-zinc-600")} />
-                  </div>
-
-                  <div className="min-w-0">
+                <div className="flex h-full flex-col">
+                  <div className="flex items-start justify-between gap-2">
                     <div
                       className={cx(
-                        "truncate text-sm font-semibold sm:text-[15px]",
+                        "grid size-10 shrink-0 place-items-center rounded-2xl border bg-white shadow-sm",
+                        selected ? accent.selBorder : "border-zinc-200"
+                      )}
+                    >
+                      <Icon
+                        className={cx(
+                          "size-[18px]",
+                          selected ? accent.selIcon : "text-zinc-600"
+                        )}
+                      />
+                    </div>
+
+                    <div
+                      className={cx(
+                        "mt-0.5 size-5 rounded-full border transition",
+                        selected
+                          ? cx(
+                              "grid place-items-center",
+                              accent.selBorder,
+                              "bg-white"
+                            )
+                          : "border-zinc-200 bg-zinc-50"
+                      )}
+                    >
+                      {selected ? (
+                        <CheckCircle2
+                          className={cx("size-3.5", accent.selIcon)}
+                        />
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 min-w-0">
+                    <div
+                      className={cx(
+                        "truncate text-[13px] font-semibold leading-4 sm:text-sm",
                         selected ? accent.selText : "text-zinc-900"
                       )}
                     >
@@ -344,7 +368,7 @@ export function EntryPanel({
                     </div>
                     <div
                       className={cx(
-                        "truncate text-xs",
+                        "mt-1 truncate text-[11px] leading-4 sm:text-xs",
                         selected ? accent.selSubText : "text-zinc-500"
                       )}
                     >
@@ -352,38 +376,46 @@ export function EntryPanel({
                     </div>
                   </div>
                 </div>
-
-                {selected ? (
-                  <div className="pointer-events-none absolute right-3 top-3">
-                    <span
-                      className={cx(
-                        "inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold text-white",
-                        accent.selChip
-                      )}
-                    >
-                      Seleccionado
-                    </span>
-                  </div>
-                ) : null}
               </button>
             );
           })}
         </div>
       </div>
 
-      <form action={formAction} className="mt-5 grid gap-4">
+      <form action={formAction} className="mt-4 grid gap-4">
         <input type="hidden" name="vehicleType" value={vehicleType} />
         <input type="hidden" name="clientTimeZone" value="America/Bogota" />
         <input type="hidden" name="stationId" value={stationId} />
 
-        <div className="rounded-2xl border border-zinc-200/80 bg-white/70 p-3 sm:p-4">
-          <label htmlFor="plate" className="text-sm font-semibold text-zinc-800">
-            Placa
-          </label>
+        <div className="rounded-[24px] border border-zinc-200/80 bg-white/80 p-3.5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] sm:p-4">
+          <div className="flex items-center justify-between gap-3">
+            <label
+              htmlFor="plate"
+              className="text-sm font-semibold tracking-tight text-zinc-800"
+            >
+              Placa
+            </label>
 
-          <div className="mt-2 relative">
+            <div
+              className={cx(
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium",
+                selectedMeta.accent.selBorder,
+                selectedMeta.accent.selText,
+                "bg-white"
+              )}
+            >
+              <selectedMeta.Icon
+                className={cx("size-3.5", selectedMeta.accent.selIcon)}
+              />
+              {selectedMeta.label}
+            </div>
+          </div>
+
+          <div className="mt-2.5 relative">
             <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
-              <selectedMeta.Icon className={cx("size-5", selectedMeta.accent.selIcon)} />
+              <selectedMeta.Icon
+                className={cx("size-5", selectedMeta.accent.selIcon)}
+              />
             </div>
 
             <input
@@ -398,26 +430,26 @@ export function EntryPanel({
               value={plate}
               onChange={(e) => setPlate(normalizePlateForInput(e.target.value))}
               className={cx(
-                "h-12 w-full rounded-2xl border bg-white pl-11 pr-4",
-                "text-base font-semibold tracking-wide text-zinc-900",
-                "placeholder:text-zinc-400 shadow-sm transition",
+                "h-12 w-full rounded-[18px] border bg-white pl-11 pr-4",
+                "text-[15px] font-semibold tracking-[0.08em] text-zinc-900",
+                "placeholder:tracking-normal placeholder:text-zinc-400",
+                "shadow-sm transition",
                 "focus:outline-none focus:ring-4 focus:border-transparent",
-                "ring-0",
                 selectedMeta.accent.selBorder,
                 selectedMeta.accent.selRing.replace("ring-", "focus:ring-")
               )}
             />
           </div>
 
-          <p className="mt-2 text-xs text-zinc-500">
+          <p className="mt-2 text-[11px] leading-4 text-zinc-500 sm:text-xs">
             Se guarda en UTC en el servidor y se muestra en hora Colombia.
           </p>
         </div>
 
         <div aria-live="polite" className="grid gap-3">
           {showSuccess ? (
-            <div className="flex items-start gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
-              <CheckCircle2 className="mt-0.5 size-5 text-emerald-700" />
+            <div className="flex items-start gap-2 rounded-[22px] border border-emerald-200 bg-emerald-50 p-3">
+              <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-700" />
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-emerald-900">
                   Entrada registrada
@@ -426,7 +458,8 @@ export function EntryPanel({
                   {last.plate} • {formatBogota(last.entryAtIso)}
                 </div>
                 <div className="mt-1 text-xs text-emerald-900/80">
-                  Codigo de escaneo • <span className="font-mono">{last.scanCode}</span>
+                  Código de escaneo •{" "}
+                  <span className="font-mono">{last.scanCode}</span>
                 </div>
                 <div className="mt-1 text-xs text-emerald-900/80">
                   Ticket en cola de impresión •{" "}
@@ -437,13 +470,15 @@ export function EntryPanel({
           ) : null}
 
           {showError ? (
-            <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3">
-              <AlertTriangle className="mt-0.5 size-5 text-amber-700" />
+            <div className="flex items-start gap-2 rounded-[22px] border border-amber-200 bg-amber-50 p-3">
+              <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-700" />
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-amber-900">
                   No se pudo registrar
                 </div>
-                <div className="mt-0.5 text-sm text-amber-900/90">{last.message}</div>
+                <div className="mt-0.5 text-sm text-amber-900/90">
+                  {last.message}
+                </div>
               </div>
             </div>
           ) : null}
@@ -453,8 +488,8 @@ export function EntryPanel({
           type="submit"
           disabled={!canSubmit}
           className={cx(
-            "inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl px-5",
-            "text-base font-semibold shadow-sm transition",
+            "inline-flex h-12 w-full items-center justify-center gap-2 rounded-[18px] px-5",
+            "text-sm font-semibold shadow-sm transition sm:text-base",
             "focus:outline-none focus:ring-4 focus:ring-zinc-200",
             !canSubmit
               ? "bg-zinc-200 text-zinc-500"
@@ -475,8 +510,9 @@ export function EntryPanel({
           )}
         </button>
 
-        <div className="text-xs text-zinc-500">
-          Tip: presiona <span className="font-semibold text-zinc-700">Enter</span> para registrar más rápido.
+        <div className="text-[11px] leading-4 text-zinc-500 sm:text-xs">
+          Tip: presiona <span className="font-semibold text-zinc-700">Enter</span>{" "}
+          para registrar más rápido.
         </div>
       </form>
     </section>

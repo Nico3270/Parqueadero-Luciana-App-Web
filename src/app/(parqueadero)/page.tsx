@@ -6,18 +6,16 @@ import EntryPanel from "@/components/parking/EntryPanel";
 import ExitLookupPanel from "@/components/parking/ExitLookupPanel";
 import { redirect } from "next/navigation";
 
-
-
 export default async function Home() {
   const session = await auth();
 
   // Protege /
-  // if (!session?.user) {
-  //   redirect("/auth/login");
-  // }
+  if (!session?.user) {
+    redirect("/auth/login");
+  }
 
-  // const u = session.user;
-  // const displayName = (u.name?.trim() || u.email?.trim() || "Operador").toString();
+  const u = session.user;
+  const displayName = (u.name?.trim() || u.email?.trim() || "Operador").toString();
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
