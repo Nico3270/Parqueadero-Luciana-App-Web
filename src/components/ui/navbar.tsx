@@ -343,7 +343,7 @@ export default function ParkingAppBar(props: Props) {
           </Box>
 
           {/* Right auth button */}
-          <Box sx={{ display: "flex", alignItems: "center" }}>
+          {/* <Box sx={{ display: "flex", alignItems: "center" }}>
             <Tooltip title={session ? "Cerrar sesión" : "Iniciar sesión"}>
               <span>
                 <Button
@@ -366,7 +366,7 @@ export default function ParkingAppBar(props: Props) {
                 </Button>
               </span>
             </Tooltip>
-          </Box>
+          </Box> */}
         </Toolbar>
       </AppBar>
 
