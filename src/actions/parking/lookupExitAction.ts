@@ -2,9 +2,14 @@
 
 import { auth } from "@/auth";
 import prisma from "@/lib/prisma";
-import { SessionStatus, VehicleType } from "@prisma/client";
+import {
+  Prisma,
+  PricingUnit,
+  SessionStatus,
+  VehicleType,
+} from "@prisma/client";
 
-export type LookupMode = "PLATE";
+export type LookupMode = "PLATE" | "SCAN_CODE";
 
 export type ExitLookupSuccess = {
   ok: true;
@@ -12,8 +17,13 @@ export type ExitLookupSuccess = {
   parkingSessionId: string;
   ticketCode: string;
   scanCode: string;
-  status: "IN" | "OUT" | "CANCELED";
+  status: SessionStatus;
   entryAtIso: string;
+  pricingUnit: PricingUnit;
+  isSubscription: boolean;
+  subscriptionId?: string | null;
+  subscriptionEndAtIso?: string | null;
+  subscriptionUrl?: string | null;
   vehicle: {
     id: string;
     type: VehicleType;
@@ -50,6 +60,18 @@ function normalizePlate(raw: string) {
   return { plate, plateNormalized };
 }
 
+function normalizeLookup(raw: string) {
+  const trimmed = (raw ?? "").trim();
+  const codeNormalized = trimmed.toUpperCase().replace(/\s+/g, "");
+  const { plateNormalized } = normalizePlate(trimmed);
+
+  return {
+    raw: trimmed,
+    codeNormalized,
+    plateNormalized,
+  };
+}
+
 function isVehicleType(v: unknown): v is VehicleType {
   return (
     v === "CAR" ||
@@ -68,8 +90,16 @@ function selectSessionLookupFields() {
     scanCode: true,
     status: true,
     entryAt: true,
+    pricingUnit: true,
     notes: true,
     shiftId: true,
+    subscriptionId: true,
+    subscription: {
+      select: {
+        id: true,
+        endAt: true,
+      },
+    },
     vehicle: {
       select: {
         id: true,
@@ -84,11 +114,41 @@ function selectSessionLookupFields() {
   } as const;
 }
 
+function buildLookupWhere(
+  codeNormalized: string,
+  plateNormalized: string,
+  vehicleType: VehicleType | null
+): Prisma.ParkingSessionWhereInput {
+  const orConditions: Prisma.ParkingSessionWhereInput[] = [];
+
+  if (codeNormalized.length >= 4) {
+    orConditions.push({
+      scanCode: codeNormalized,
+    });
+  }
+
+  if (plateNormalized.length >= 4) {
+    orConditions.push({
+      vehicle: vehicleType
+        ? {
+            plateNormalized,
+            type: vehicleType,
+          }
+        : {
+            plateNormalized,
+          },
+    });
+  }
+
+  return { OR: orConditions };
+}
+
 /**
  * Server Action:
- * - Búsqueda solo por placa
- * - Busca la ParkingSession IN más reciente por plateNormalized
- * - Si llega vehicleType, lo usa para evitar ambigüedad
+ * - Permite buscar por placa o scanCode
+ * - Devuelve la sesión activa más reciente
+ * - Expone pricingUnit / subscription para que la UI distinga mensualidad
+ * - Si no hay activa, intenta detectar si la última ya fue cerrada/anulada
  */
 export async function lookupExitAction(
   _prevState: ExitLookupState,
@@ -130,20 +190,20 @@ export async function lookupExitAction(
           ok: false,
           code: "VALIDATION_ERROR",
           field: "ticketOrPlate",
-          message: "Ingresa una placa válida para buscar.",
+          message: "Ingresa una placa o código válido para buscar.",
         },
       };
     }
 
-    const { plateNormalized } = normalizePlate(ticketOrPlateRaw);
+    const { codeNormalized, plateNormalized } = normalizeLookup(ticketOrPlateRaw);
 
-    if (plateNormalized.length < 4) {
+    if (codeNormalized.length < 4 && plateNormalized.length < 4) {
       return {
         last: {
           ok: false,
           code: "VALIDATION_ERROR",
           field: "ticketOrPlate",
-          message: "La placa es muy corta. Verifica e intenta de nuevo.",
+          message: "La placa o el código es muy corto. Verifica e intenta de nuevo.",
         },
       };
     }
@@ -151,62 +211,93 @@ export async function lookupExitAction(
     const vehicleTypeRaw = formData.get("vehicleType");
     const vehicleType = isVehicleType(vehicleTypeRaw) ? vehicleTypeRaw : null;
 
-    const ps = await prisma.parkingSession.findFirst({
+    const lookupWhere = buildLookupWhere(
+      codeNormalized,
+      plateNormalized,
+      vehicleType
+    );
+
+    const activeSession = await prisma.parkingSession.findFirst({
       where: {
         status: SessionStatus.IN,
-        vehicle: vehicleType
-          ? { plateNormalized, type: vehicleType }
-          : { plateNormalized },
+        ...lookupWhere,
       },
-      orderBy: { entryAt: "desc" },
+      orderBy: [{ entryAt: "desc" }],
       select: selectSessionLookupFields(),
     });
 
-    if (!ps) {
+    if (activeSession) {
+      const mode: LookupMode =
+        activeSession.scanCode === codeNormalized ? "SCAN_CODE" : "PLATE";
+
       return {
         last: {
-          ok: false,
-          code: "NOT_FOUND",
-          field: "ticketOrPlate",
-          message:
-            "No se encontró una entrada activa con esa placa. Verifica e intenta de nuevo.",
+          ok: true,
+          mode,
+          parkingSessionId: activeSession.id,
+          ticketCode: activeSession.ticketCode,
+          scanCode: activeSession.scanCode,
+          status: activeSession.status,
+          entryAtIso: activeSession.entryAt.toISOString(),
+          pricingUnit: activeSession.pricingUnit,
+          isSubscription:
+            activeSession.pricingUnit === PricingUnit.SUBSCRIPTION,
+          subscriptionId: activeSession.subscriptionId ?? null,
+          subscriptionEndAtIso: activeSession.subscription?.endAt
+            ? activeSession.subscription.endAt.toISOString()
+            : null,
+          subscriptionUrl: activeSession.subscriptionId
+            ? `/mensualidades/${encodeURIComponent(
+                activeSession.vehicle.plateNormalized
+              )}`
+            : null,
+          vehicle: {
+            id: activeSession.vehicle.id,
+            type: activeSession.vehicle.type,
+            plate: activeSession.vehicle.plate,
+            plateNormalized: activeSession.vehicle.plateNormalized,
+          },
+          createdBy: activeSession.createdBy ?? undefined,
+          shiftId: activeSession.shiftId ?? null,
+          notes: activeSession.notes ?? null,
         },
       };
     }
 
-    if (ps.status !== SessionStatus.IN) {
+    const latestSession = await prisma.parkingSession.findFirst({
+      where: lookupWhere,
+      orderBy: [{ entryAt: "desc" }],
+      select: {
+        status: true,
+      },
+    });
+
+    if (latestSession) {
       return {
         last: {
           ok: false,
           code: "ALREADY_CLOSED",
           field: "ticketOrPlate",
-          message: "Esta sesión ya fue cerrada o anulada.",
+          message:
+            latestSession.status === SessionStatus.CANCELED
+              ? "La última sesión encontrada para este vehículo fue anulada."
+              : "La última sesión encontrada para este vehículo ya fue cerrada.",
         },
       };
     }
 
     return {
       last: {
-        ok: true,
-        mode: "PLATE",
-        parkingSessionId: ps.id,
-        ticketCode: ps.ticketCode,
-        scanCode: ps.scanCode,
-        status: ps.status,
-        entryAtIso: ps.entryAt.toISOString(),
-        vehicle: {
-          id: ps.vehicle.id,
-          type: ps.vehicle.type,
-          plate: ps.vehicle.plate,
-          plateNormalized: ps.vehicle.plateNormalized,
-        },
-        createdBy: ps.createdBy ?? undefined,
-        shiftId: ps.shiftId ?? null,
-        notes: ps.notes ?? null,
+        ok: false,
+        code: "NOT_FOUND",
+        field: "ticketOrPlate",
+        message:
+          "No se encontró una entrada activa con esa placa o código. Verifica e intenta de nuevo.",
       },
     };
   } catch (err) {
     console.error("[lookupExitAction] Error:", err);
+
     return {
       last: {
         ok: false,

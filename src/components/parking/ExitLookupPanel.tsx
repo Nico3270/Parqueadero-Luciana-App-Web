@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import * as React from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -14,6 +15,9 @@ import {
   Loader2,
   AlertTriangle,
   CheckCircle2,
+  CalendarClock,
+  ExternalLink,
+  ArrowRight,
 } from "lucide-react";
 
 import ExitCheckoutModalContent, {
@@ -34,8 +38,6 @@ export type VehicleType =
   | "TRACTOMULA"
   | "OTHER";
 
-export type LookupMode = "PLATE";
-
 export type ExitLookupServerAction = (
   prevState: ExitLookupState,
   formData: FormData
@@ -45,11 +47,11 @@ function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-function normalizePlateForInput(raw: string) {
+function normalizeLookupInput(raw: string) {
   return raw
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "")
-    .slice(0, 10);
+    .slice(0, 16);
 }
 
 function formatBogota(isoUtc: string) {
@@ -109,13 +111,18 @@ function isLookupError(
   return Boolean(value && !value.ok);
 }
 
+function isSubscriptionLookup(
+  value: ExitLookupResult | null
+): value is ExitLookupSuccess & { isSubscription: true } {
+  return Boolean(value && value.ok && value.isSubscription);
+}
+
 const DEFAULT_STATION_ID = "TUNJA-1";
-const FIXED_MODE: LookupMode = "PLATE";
 
 export default function ExitLookupPanel({
   action,
   title = "Salida / Cobro",
-  description = "Busca la sesión activa por placa para registrar la salida.",
+  description = "Busca la sesión activa por placa o código para registrar la salida.",
   className,
   stationId = DEFAULT_STATION_ID,
 }: {
@@ -129,7 +136,8 @@ export default function ExitLookupPanel({
   const formRef = React.useRef<HTMLFormElement | null>(null);
 
   const [query, setQuery] = React.useState("");
-  const [open, setOpen] = React.useState(false);
+  const [openCheckout, setOpenCheckout] = React.useState(false);
+  const [openSubscriptionInfo, setOpenSubscriptionInfo] = React.useState(false);
 
   const [lookupLoading, setLookupLoading] = React.useState(false);
   const [lookupResult, setLookupResult] =
@@ -137,6 +145,11 @@ export default function ExitLookupPanel({
 
   const ok = isLookupSuccess(lookupResult);
   const err = isLookupError(lookupResult);
+  const isSubscription = isSubscriptionLookup(lookupResult);
+
+  const regularSession =
+    ok && !lookupResult.isSubscription ? lookupResult : null;
+  const subscriptionSession = isSubscription ? lookupResult : null;
 
   const [closing, setClosing] = React.useState(false);
   const [closeError, setCloseError] = React.useState<string | null>(null);
@@ -147,29 +160,40 @@ export default function ExitLookupPanel({
   }, []);
 
   React.useEffect(() => {
-    if (ok) {
-      setCloseError(null);
-      setCloseSuccess(null);
-      setOpen(true);
-      setQuery("");
-      requestAnimationFrame(() => inputRef.current?.focus());
+    if (!ok) return;
+
+    setCloseError(null);
+    setCloseSuccess(null);
+    setQuery("");
+
+    if (lookupResult.isSubscription) {
+      setOpenCheckout(false);
+      setOpenSubscriptionInfo(true);
+    } else {
+      setOpenSubscriptionInfo(false);
+      setOpenCheckout(true);
     }
-  }, [ok]);
+
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, [ok, lookupResult]);
 
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && open && !closing) {
-        setOpen(false);
+      if (e.key !== "Escape" || closing) return;
+
+      if (openCheckout || openSubscriptionInfo) {
+        setOpenCheckout(false);
+        setOpenSubscriptionInfo(false);
       }
     }
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, closing]);
+  }, [openCheckout, openSubscriptionInfo, closing]);
 
-  const placeholder = "Ej: ABC123";
-  const helper = "Tip: escribe la placa sin espacios ni guiones.";
-  const canSubmit = query.trim().length >= 4 && !lookupLoading;
+  const placeholder = "Ej: ABC123 o K7M2Q8";
+  const helper = "Puedes buscar por placa o por el código corto del ticket.";
+  const canSubmit = query.trim().length >= 4 && !lookupLoading && !closing;
 
   async function handleLookupSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -179,6 +203,8 @@ export default function ExitLookupPanel({
     setLookupResult(null);
     setCloseError(null);
     setCloseSuccess(null);
+    setOpenCheckout(false);
+    setOpenSubscriptionInfo(false);
 
     try {
       const fd = new FormData(formRef.current);
@@ -206,36 +232,31 @@ export default function ExitLookupPanel({
     }
   }
 
-  async function handleConfirm(payload: ExitCheckoutSubmitPayload) {
-    if (!ok) return;
+  async function handleRegularConfirm(payload: ExitCheckoutSubmitPayload) {
+    if (!regularSession) return;
 
     setClosing(true);
     setCloseError(null);
     setCloseSuccess(null);
 
     try {
-      const closePayload = {
+      const res = await closeExitAction({
         parkingSessionId: payload.parkingSessionId,
         method: payload.method,
         amountPaid: payload.amountPaid,
         suggestedAmount: payload.suggestedAmount,
         stationId,
         generateReceipt: payload.generateReceipt,
-      } as Parameters<typeof closeExitAction>[0];
-
-      const res = await closeExitAction(closePayload);
+      });
 
       if (!res.ok) {
         setCloseError(res.message || "No se pudo registrar la salida.");
         return;
       }
 
-      const receiptGeneratedRaw = (res as { receiptGenerated?: unknown })
-        .receiptGenerated;
-
       const receiptGenerated =
-        typeof receiptGeneratedRaw === "boolean"
-          ? receiptGeneratedRaw
+        typeof res.receiptGenerated === "boolean"
+          ? res.receiptGenerated
           : payload.generateReceipt;
 
       setCloseSuccess(
@@ -244,7 +265,7 @@ export default function ExitLookupPanel({
           : `Salida registrada sin recibo • ${formatCOP(res.finalAmount)}`
       );
 
-      setOpen(false);
+      setOpenCheckout(false);
       setLookupResult(null);
       requestAnimationFrame(() => inputRef.current?.focus());
     } catch {
@@ -252,6 +273,46 @@ export default function ExitLookupPanel({
     } finally {
       setClosing(false);
     }
+  }
+
+  async function handleSubscriptionExit() {
+    if (!subscriptionSession) return;
+
+    setClosing(true);
+    setCloseError(null);
+    setCloseSuccess(null);
+
+    try {
+      const res = await closeExitAction({
+        parkingSessionId: subscriptionSession.parkingSessionId,
+        stationId,
+        generateReceipt: false,
+      });
+
+      if (!res.ok) {
+        setCloseError(
+          res.message || "No se pudo registrar la salida de la mensualidad."
+        );
+        return;
+      }
+
+      setCloseSuccess("Salida de mensualidad registrada correctamente.");
+      setOpenSubscriptionInfo(false);
+      setLookupResult(null);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    } catch {
+      setCloseError(
+        "Ocurrió un error al registrar la salida de la mensualidad. Intenta de nuevo."
+      );
+    } finally {
+      setClosing(false);
+    }
+  }
+
+  function handleCloseAllModals() {
+    if (closing) return;
+    setOpenCheckout(false);
+    setOpenSubscriptionInfo(false);
   }
 
   return (
@@ -276,7 +337,7 @@ export default function ExitLookupPanel({
           <div className="shrink-0">
             <div className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-100/70 px-3 py-2 text-sm font-semibold text-rose-900 shadow-sm">
               <Search className="size-4" />
-              Búsqueda por placa
+              Buscar
             </div>
           </div>
         </header>
@@ -286,7 +347,6 @@ export default function ExitLookupPanel({
           onSubmit={handleLookupSubmit}
           className="mt-5 grid gap-4"
         >
-          <input type="hidden" name="mode" value={FIXED_MODE} />
           <input type="hidden" name="clientTimeZone" value="America/Bogota" />
           <input type="hidden" name="stationId" value={stationId} />
 
@@ -295,7 +355,7 @@ export default function ExitLookupPanel({
               htmlFor="ticketOrPlate"
               className="text-sm font-semibold text-zinc-800"
             >
-              Placa
+              Placa o código
             </label>
 
             <div className="mt-2 relative">
@@ -313,7 +373,7 @@ export default function ExitLookupPanel({
                 placeholder={placeholder}
                 value={query}
                 onChange={(e) => {
-                  setQuery(normalizePlateForInput(e.target.value));
+                  setQuery(normalizeLookupInput(e.target.value));
                 }}
                 className={cx(
                   "h-12 w-full rounded-2xl border bg-white pl-11 pr-4",
@@ -330,15 +390,38 @@ export default function ExitLookupPanel({
           <div aria-live="polite" className="grid gap-3">
             {ok ? (
               <div className="flex items-start gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
-                <CheckCircle2 className="mt-0.5 size-5 text-emerald-700" />
+                <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-700" />
                 <div className="min-w-0">
-                  <div className="text-sm font-semibold text-emerald-900">
-                    Sesión encontrada
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="text-sm font-semibold text-emerald-900">
+                      Sesión encontrada
+                    </div>
+
+                    <span
+                      className={cx(
+                        "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                        lookupResult.isSubscription
+                          ? "border-sky-300 bg-sky-100 text-sky-900"
+                          : "border-emerald-300 bg-white text-emerald-900"
+                      )}
+                    >
+                      {lookupResult.isSubscription
+                        ? "Mensualidad"
+                        : "Ingreso normal"}
+                    </span>
+
+                    <span className="inline-flex items-center rounded-full border border-emerald-300 bg-white px-2 py-0.5 text-[11px] font-medium text-emerald-900">
+                      {lookupResult.mode === "SCAN_CODE"
+                        ? "Encontrado por código"
+                        : "Encontrado por placa"}
+                    </span>
                   </div>
-                  <div className="mt-0.5 text-sm text-emerald-800">
+
+                  <div className="mt-1 text-sm text-emerald-800">
                     {lookupResult.vehicle.plate} •{" "}
                     {formatBogota(lookupResult.entryAtIso)}
                   </div>
+
                   <div className="mt-1 flex items-center gap-2 text-xs text-emerald-900/80">
                     {(() => {
                       const meta = vehicleMeta(lookupResult.vehicle.type);
@@ -351,21 +434,46 @@ export default function ExitLookupPanel({
                       );
                     })()}
                   </div>
+
                   <div className="mt-1 text-xs text-emerald-900/80">
-                    Código de salida •{" "}
+                    Código •{" "}
                     <span className="font-mono">{lookupResult.scanCode}</span>
                   </div>
+
                   <div className="mt-1 text-xs text-emerald-900/80">
                     Ticket interno •{" "}
                     <span className="font-mono">{lookupResult.ticketCode}</span>
                   </div>
+
+                  {lookupResult.isSubscription &&
+                  lookupResult.subscriptionEndAtIso ? (
+                    <div className="mt-1 text-xs text-sky-900/90">
+                      Vigente hasta •{" "}
+                      <span className="font-medium">
+                        {formatBogota(lookupResult.subscriptionEndAtIso)}
+                      </span>
+                    </div>
+                  ) : null}
+
+                  {lookupResult.isSubscription &&
+                  lookupResult.subscriptionUrl ? (
+                    <div className="mt-2">
+                      <Link
+                        href={lookupResult.subscriptionUrl}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-sky-300 bg-white px-2.5 py-1 text-[11px] font-medium text-sky-900 transition hover:bg-sky-50"
+                      >
+                        Ver mensualidad
+                        <ExternalLink className="size-3.5" />
+                      </Link>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : null}
 
             {err ? (
               <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3">
-                <AlertTriangle className="mt-0.5 size-5 text-amber-700" />
+                <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-700" />
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-amber-900">
                     No se encontró
@@ -379,7 +487,7 @@ export default function ExitLookupPanel({
 
             {closeError ? (
               <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3">
-                <AlertTriangle className="mt-0.5 size-5 text-amber-700" />
+                <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-700" />
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-amber-900">
                     No se pudo registrar la salida
@@ -393,7 +501,7 @@ export default function ExitLookupPanel({
 
             {closeSuccess ? (
               <div className="flex items-start gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
-                <CheckCircle2 className="mt-0.5 size-5 text-emerald-700" />
+                <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-700" />
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-emerald-900">
                     Listo
@@ -426,7 +534,7 @@ export default function ExitLookupPanel({
             ) : (
               <>
                 <Search className="size-5" />
-                Buscar por placa
+                Buscar
               </>
             )}
           </button>
@@ -434,7 +542,7 @@ export default function ExitLookupPanel({
       </section>
 
       <AnimatePresence>
-        {open && ok ? (
+        {openCheckout && regularSession ? (
           <motion.div
             className="fixed inset-0 z-[999]"
             initial={{ opacity: 0 }}
@@ -448,7 +556,7 @@ export default function ExitLookupPanel({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => (!closing ? setOpen(false) : null)}
+              onClick={handleCloseAllModals}
             />
 
             <motion.div
@@ -474,7 +582,7 @@ export default function ExitLookupPanel({
 
                   <button
                     type="button"
-                    onClick={() => (!closing ? setOpen(false) : null)}
+                    onClick={handleCloseAllModals}
                     className={cx(
                       "inline-flex size-10 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-sm transition",
                       closing
@@ -491,18 +599,18 @@ export default function ExitLookupPanel({
                 <div className="max-h-[85vh] overflow-hidden">
                   <ExitCheckoutModalContent
                     data={{
-                      parkingSessionId: lookupResult.parkingSessionId,
-                      ticketCode: lookupResult.scanCode,
-                      entryAtIso: lookupResult.entryAtIso,
+                      parkingSessionId: regularSession.parkingSessionId,
+                      ticketCode: regularSession.scanCode,
+                      entryAtIso: regularSession.entryAtIso,
                       vehicle: {
-                        id: lookupResult.vehicle.id,
-                        type: lookupResult.vehicle.type,
-                        plate: lookupResult.vehicle.plate,
-                        plateNormalized: lookupResult.vehicle.plateNormalized,
+                        id: regularSession.vehicle.id,
+                        type: regularSession.vehicle.type,
+                        plate: regularSession.vehicle.plate,
+                        plateNormalized: regularSession.vehicle.plateNormalized,
                       },
                     }}
-                    onCancel={() => (!closing ? setOpen(false) : null)}
-                    onConfirm={handleConfirm}
+                    onCancel={handleCloseAllModals}
+                    onConfirm={handleRegularConfirm}
                   />
                 </div>
 
@@ -523,6 +631,165 @@ export default function ExitLookupPanel({
                         </div>
                       </div>
                     </motion.div>
+                  ) : null}
+                </AnimatePresence>
+              </div>
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {openSubscriptionInfo && subscriptionSession ? (
+          <motion.div
+            className="fixed inset-0 z-[999]"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            aria-modal="true"
+            role="dialog"
+          >
+            <motion.div
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={handleCloseAllModals}
+            />
+
+            <motion.div
+              className="absolute left-1/2 top-1/2 w-[92vw] max-w-lg -translate-x-1/2 -translate-y-1/2"
+              initial={{ opacity: 0, y: 10, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.98 }}
+              transition={{ type: "spring", stiffness: 260, damping: 24 }}
+            >
+              <div className="relative overflow-hidden rounded-3xl border border-white/20 bg-white shadow-xl">
+                <div className="flex items-start justify-between gap-3 p-5">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <CalendarClock className="size-5 text-sky-600" />
+                      <h3 className="text-base font-semibold tracking-tight text-zinc-900">
+                        Vehículo con mensualidad
+                      </h3>
+                    </div>
+                    <p className="mt-1 text-sm text-zinc-600">
+                      Esta sesión pertenece a una mensualidad activa. Puedes
+                      cerrar la salida desde aquí sin pasar por cobro normal.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleCloseAllModals}
+                    className={cx(
+                      "inline-flex size-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 shadow-sm transition",
+                      closing ? "opacity-60" : "hover:bg-zinc-50"
+                    )}
+                    aria-label="Cerrar"
+                    disabled={closing}
+                  >
+                    <X className="size-5" />
+                  </button>
+                </div>
+
+                <div className="px-5 pb-5">
+                  <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+                    <div className="text-sm font-semibold text-sky-950">
+                      {subscriptionSession.vehicle.plate}
+                    </div>
+
+                    <div className="mt-2 grid gap-2 text-sm text-sky-900/90">
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Ingreso</span>
+                        <span className="font-medium text-right">
+                          {formatBogota(subscriptionSession.entryAtIso)}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Código</span>
+                        <span className="font-mono">
+                          {subscriptionSession.scanCode}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Búsqueda</span>
+                        <span className="font-medium">
+                          {subscriptionSession.mode === "SCAN_CODE"
+                            ? "Por código"
+                            : "Por placa"}
+                        </span>
+                      </div>
+
+                      {subscriptionSession.subscriptionEndAtIso ? (
+                        <div className="flex items-center justify-between gap-3">
+                          <span>Vigente hasta</span>
+                          <span className="font-medium text-right">
+                            {formatBogota(
+                              subscriptionSession.subscriptionEndAtIso
+                            )}
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={handleCloseAllModals}
+                      className="inline-flex h-11 flex-1 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-700 shadow-sm transition hover:bg-zinc-50"
+                      disabled={closing}
+                    >
+                      Cerrar
+                    </button>
+
+                    {subscriptionSession.subscriptionUrl ? (
+                      <Link
+                        href={subscriptionSession.subscriptionUrl}
+                        className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-sky-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700"
+                      >
+                        Ver mensualidad
+                        <ExternalLink className="size-4" />
+                      </Link>
+                    ) : null}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSubscriptionExit}
+                    disabled={closing}
+                    className={cx(
+                      "mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl px-4 text-sm font-semibold text-white shadow-sm transition",
+                      closing
+                        ? "bg-zinc-400"
+                        : "bg-rose-600 hover:bg-rose-700"
+                    )}
+                  >
+                    {closing ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" />
+                        Registrando salida…
+                      </>
+                    ) : (
+                      <>
+                        Registrar salida
+                        <ArrowRight className="size-4" />
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <AnimatePresence>
+                  {closing ? (
+                    <motion.div
+                      className="absolute inset-0 bg-white/55 backdrop-blur-sm"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                    />
                   ) : null}
                 </AnimatePresence>
               </div>

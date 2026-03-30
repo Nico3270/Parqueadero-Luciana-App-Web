@@ -2,7 +2,15 @@
 
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
-import { Prisma, PrintJobStatus, PrintJobType, VehicleType } from "@prisma/client";
+import {
+  Prisma,
+  PrintJobStatus,
+  PrintJobType,
+  PricingUnit,
+  SessionStatus,
+  SubscriptionStatus,
+  VehicleType,
+} from "@prisma/client";
 import prisma from "@/lib/prisma";
 
 type VehicleTypeInput = "CAR" | "MOTO" | "TRUCK" | "BUS" | "TRACTOMULA" | "OTHER";
@@ -11,31 +19,75 @@ const SCAN_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const SCAN_CODE_LENGTH = 6;
 const SCAN_CODE_MAX_RETRIES = 12;
 
-export type CreateEntryResult =
+type RestartableActiveSessionInfo = {
+  id: string;
+  ticketCode: string;
+  scanCode: string;
+  entryAtIso: string;
+  pricingUnit: PricingUnit;
+  subscriptionId: string | null;
+};
+
+type CreateEntrySuccessBase = {
+  ok: true;
+  sessionId: string;
+  ticketCode: string;
+  scanCode: string;
+  vehicleId: string;
+  plate: string;
+  plateNormalized: string;
+  vehicleType: VehicleTypeInput;
+  entryAtIso: string;
+  restartedPreviousSession: boolean;
+  restartedSessionId?: string;
+  restartedSessionsCount?: number;
+  message?: string;
+};
+
+type CreateEntryRegularSuccess = CreateEntrySuccessBase & {
+  kind: "REGULAR_ENTRY";
+  printJobId: string;
+};
+
+type CreateEntrySubscriptionSuccess = CreateEntrySuccessBase & {
+  kind: "SUBSCRIPTION_ENTRY";
+  subscriptionId: string;
+  subscriptionUrl: string;
+  subscriptionEndAtIso: string;
+};
+
+type CreateEntryError =
   | {
-      ok: true;
-      sessionId: string;
-      ticketCode: string;
-      scanCode: string;
-      vehicleId: string;
-      plate: string;
-      plateNormalized: string;
-      vehicleType: VehicleTypeInput;
-      entryAtIso: string;
-      printJobId: string;
-      message?: string;
+      ok: false;
+      code: "VALIDATION_ERROR";
+      message: string;
+      field?: "plate" | "vehicleType";
     }
   | {
       ok: false;
-      code:
-        | "VALIDATION_ERROR"
-        | "ALREADY_ACTIVE"
-        | "UNAUTHORIZED"
-        | "INACTIVE_USER"
-        | "UNKNOWN_ERROR";
+      code: "ALREADY_ACTIVE";
+      message: string;
+      field?: "plate";
+    }
+  | {
+      ok: false;
+      code: "ACTIVE_SESSION_RESTART_REQUIRED";
+      message: string;
+      field: "plate";
+      canRestart: true;
+      existingSession: RestartableActiveSessionInfo;
+    }
+  | {
+      ok: false;
+      code: "UNAUTHORIZED" | "INACTIVE_USER" | "UNKNOWN_ERROR";
       message: string;
       field?: "plate" | "vehicleType";
     };
+
+export type CreateEntryResult =
+  | CreateEntryRegularSuccess
+  | CreateEntrySubscriptionSuccess
+  | CreateEntryError;
 
 export type EntryActionState = {
   last?: CreateEntryResult;
@@ -72,6 +124,25 @@ function randomScanCode(length = SCAN_CODE_LENGTH) {
   return out;
 }
 
+function parseBooleanFormValue(value: FormDataEntryValue | null | undefined) {
+  if (typeof value !== "string") return false;
+
+  const normalized = value.trim().toLowerCase();
+
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on" ||
+    normalized === "si" ||
+    normalized === "sí"
+  );
+}
+
+function buildRestartNote(operatorLabel: string, restartedAtIso: string) {
+  return `[SISTEMA] Sesión cerrada automáticamente por reinicio de ingreso el ${restartedAtIso} por ${operatorLabel}.`;
+}
+
 async function generateUniqueScanCode(tx: Prisma.TransactionClient) {
   for (let i = 0; i < SCAN_CODE_MAX_RETRIES; i++) {
     const candidate = randomScanCode();
@@ -90,13 +161,17 @@ async function generateUniqueScanCode(tx: Prisma.TransactionClient) {
 /**
  * Server Action
  * - Upsert Vehicle por (plateNormalized, type)
- * - Verifica que NO exista sesión IN activa para ese vehículo
- * - Genera scanCode corto y único
- * - Crea ParkingSession (IN)
- * - Crea PrintJob (ENTRY_TICKET) para impresión local near-realtime
+ * - Detecta mensualidad activa del vehículo
+ * - Si hay sesión activa:
+ *   - devuelve estado de confirmación para reinicio
+ *   - o la cierra automáticamente si llega confirmRestartExisting
+ * - Crea nueva ParkingSession
+ * - Solo crea PrintJob si NO es mensualidad
  *
- * Nota horas:
- * - Prisma/PG guarda DateTime en UTC. UI formatea con America/Bogota.
+ * Nota:
+ * - Incluso para mensualidad se registra ParkingSession, para saber
+ *   qué vehículos están actualmente dentro del parqueadero.
+ * - En mensualidad NO se imprime ticket de entrada.
  */
 export async function createEntryAction(
   _prevState: EntryActionState,
@@ -133,6 +208,9 @@ export async function createEntryAction(
     const vehicleTypeRaw = formData.get("vehicleType");
     const plateRaw = formData.get("plate");
     const stationId = safeStationId(formData.get("stationId") as string | null);
+    const confirmRestartExisting = parseBooleanFormValue(
+      formData.get("confirmRestartExisting")
+    );
 
     if (!isVehicleType(vehicleTypeRaw)) {
       return {
@@ -169,6 +247,11 @@ export async function createEntryAction(
       };
     }
 
+    const operatorLabel =
+      user.name?.trim() ||
+      user.email?.trim() ||
+      `usuario ${user.id}`;
+
     const result = await prisma.$transaction(
       async (tx) => {
         const vehicle = await tx.vehicle.upsert({
@@ -195,31 +278,106 @@ export async function createEntryAction(
           },
         });
 
-        const active = await tx.parkingSession.findFirst({
+        const existingActiveSession = await tx.parkingSession.findFirst({
           where: {
             vehicleId: vehicle.id,
-            status: "IN",
+            status: SessionStatus.IN,
           },
-          select: { id: true },
+          orderBy: {
+            entryAt: "desc",
+          },
+          select: {
+            id: true,
+            ticketCode: true,
+            scanCode: true,
+            entryAt: true,
+            pricingUnit: true,
+            subscriptionId: true,
+          },
         });
 
-        if (active) {
+        if (existingActiveSession && !confirmRestartExisting) {
           return {
             ok: false as const,
-            code: "ALREADY_ACTIVE" as const,
-            message: "Este vehículo ya tiene una entrada activa. Revisa la salida/cobro.",
+            code: "ACTIVE_SESSION_RESTART_REQUIRED" as const,
             field: "plate" as const,
+            canRestart: true as const,
+            message:
+              "Este vehículo ya tiene una sesión activa. Si deseas, puedes reiniciarla para cerrar la anterior y crear una nueva entrada.",
+            existingSession: {
+              id: existingActiveSession.id,
+              ticketCode: existingActiveSession.ticketCode,
+              scanCode: existingActiveSession.scanCode,
+              entryAtIso: existingActiveSession.entryAt.toISOString(),
+              pricingUnit: existingActiveSession.pricingUnit,
+              subscriptionId: existingActiveSession.subscriptionId,
+            },
           };
         }
 
+        let restartedPreviousSession = false;
+        let restartedSessionId: string | undefined;
+        let restartedSessionsCount = 0;
+
+        if (existingActiveSession && confirmRestartExisting) {
+          const restartedAt = new Date();
+          const restartNote = buildRestartNote(
+            operatorLabel,
+            restartedAt.toISOString()
+          );
+
+          const closedSessions = await tx.parkingSession.updateMany({
+            where: {
+              vehicleId: vehicle.id,
+              status: SessionStatus.IN,
+            },
+            data: {
+              status: SessionStatus.CANCELED,
+              exitAt: restartedAt,
+              closedById: user.id,
+              notes: restartNote,
+            },
+          });
+
+          restartedPreviousSession = closedSessions.count > 0;
+          restartedSessionId = existingActiveSession.id;
+          restartedSessionsCount = closedSessions.count;
+        }
+
+        const now = new Date();
+
+        const activeSubscription = await tx.subscription.findFirst({
+          where: {
+            vehicleId: vehicle.id,
+            status: SubscriptionStatus.ACTIVE,
+            startAt: {
+              lte: now,
+            },
+            endAt: {
+              gte: now,
+            },
+          },
+          orderBy: {
+            endAt: "desc",
+          },
+          select: {
+            id: true,
+            endAt: true,
+          },
+        });
+
         const scanCode = await generateUniqueScanCode(tx);
 
-        const ps = await tx.parkingSession.create({
+        const parkingSession = await tx.parkingSession.create({
           data: {
-            status: "IN",
+            status: SessionStatus.IN,
             vehicleId: vehicle.id,
             createdById: user.id,
             scanCode,
+            pricingUnit: activeSubscription
+              ? PricingUnit.SUBSCRIPTION
+              : PricingUnit.MANUAL,
+            subscriptionId: activeSubscription?.id ?? null,
           },
           select: {
             id: true,
@@ -227,6 +385,8 @@ export async function createEntryAction(
             scanCode: true,
             entryAt: true,
             vehicleId: true,
+            pricingUnit: true,
+            subscriptionId: true,
             vehicle: {
               select: {
                 id: true,
@@ -238,12 +398,38 @@ export async function createEntryAction(
           },
         });
 
+        if (activeSubscription) {
+          return {
+            ok: true as const,
+            kind: "SUBSCRIPTION_ENTRY" as const,
+            sessionId: parkingSession.id,
+            ticketCode: parkingSession.ticketCode,
+            scanCode: parkingSession.scanCode,
+            vehicleId: parkingSession.vehicleId,
+            plate: vehicle.plate,
+            plateNormalized: vehicle.plateNormalized,
+            vehicleType: vehicle.type as VehicleTypeInput,
+            entryAtIso: parkingSession.entryAt.toISOString(),
+            subscriptionId: activeSubscription.id,
+            subscriptionUrl: `/mensualidades/${encodeURIComponent(
+              vehicle.plateNormalized
+            )}`,
+            subscriptionEndAtIso: activeSubscription.endAt.toISOString(),
+            restartedPreviousSession,
+            restartedSessionId,
+            restartedSessionsCount,
+            message: restartedPreviousSession
+              ? "Vehículo con mensualidad activa. Se cerró la sesión anterior y se registró un nuevo ingreso sin imprimir ticket."
+              : "Vehículo con mensualidad activa. Se registró el ingreso sin imprimir ticket.",
+          };
+        }
+
         const printJob = await tx.printJob.create({
           data: {
             type: PrintJobType.ENTRY_TICKET,
             status: PrintJobStatus.PENDING,
             stationId,
-            sessionId: ps.id,
+            sessionId: parkingSession.id,
             createdById: user.id,
             copies: 1,
             priority: 0,
@@ -252,18 +438,18 @@ export async function createEntryAction(
               stationId,
               parkingName: "Parqueadero Luca",
 
-              parkingSessionId: ps.id,
-              ticketCode: ps.ticketCode,
-              scanCode: ps.scanCode,
+              parkingSessionId: parkingSession.id,
+              ticketCode: parkingSession.ticketCode,
+              scanCode: parkingSession.scanCode,
 
               vehicle: {
-                id: ps.vehicle.id,
-                type: ps.vehicle.type,
-                plate: ps.vehicle.plate,
-                plateNormalized: ps.vehicle.plateNormalized,
+                id: parkingSession.vehicle.id,
+                type: parkingSession.vehicle.type,
+                plate: parkingSession.vehicle.plate,
+                plateNormalized: parkingSession.vehicle.plateNormalized,
               },
 
-              entryAtIso: ps.entryAt.toISOString(),
+              entryAtIso: parkingSession.entryAt.toISOString(),
 
               operator: {
                 id: user.id,
@@ -273,30 +459,38 @@ export async function createEntryAction(
 
               barcode: {
                 type: "SCAN_CODE",
-                value: ps.scanCode,
+                value: parkingSession.scanCode,
               },
 
               qr: {
                 type: "SCAN_CODE",
-                value: ps.scanCode,
+                value: parkingSession.scanCode,
               },
             },
           },
-          select: { id: true },
+          select: {
+            id: true,
+          },
         });
 
         return {
           ok: true as const,
-          sessionId: ps.id,
-          ticketCode: ps.ticketCode,
-          scanCode: ps.scanCode,
-          vehicleId: ps.vehicleId,
+          kind: "REGULAR_ENTRY" as const,
+          sessionId: parkingSession.id,
+          ticketCode: parkingSession.ticketCode,
+          scanCode: parkingSession.scanCode,
+          vehicleId: parkingSession.vehicleId,
           plate: vehicle.plate,
           plateNormalized: vehicle.plateNormalized,
           vehicleType: vehicle.type as VehicleTypeInput,
-          entryAtIso: ps.entryAt.toISOString(),
+          entryAtIso: parkingSession.entryAt.toISOString(),
           printJobId: printJob.id,
-          message: "Entrada registrada.",
+          restartedPreviousSession,
+          restartedSessionId,
+          restartedSessionsCount,
+          message: restartedPreviousSession
+            ? "Entrada registrada. Se cerró la sesión anterior y se generó un nuevo ticket."
+            : "Entrada registrada.",
         };
       },
       { isolationLevel: "Serializable" }
@@ -307,6 +501,7 @@ export async function createEntryAction(
     }
 
     revalidatePath("/");
+    revalidatePath("/mensualidades");
 
     return { last: result };
   } catch (err) {

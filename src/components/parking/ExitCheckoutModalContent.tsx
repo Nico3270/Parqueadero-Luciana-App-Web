@@ -14,6 +14,7 @@ import {
   ArrowRight,
   AlertTriangle,
   Printer,
+  CheckCircle2,
 } from "lucide-react";
 
 import { getSuggestedPrice } from "@/lib/pricing/suggestedPricing";
@@ -78,8 +79,12 @@ function formatCOP(value: number) {
   }
 }
 
+function normalizeAmountInput(raw: string) {
+  return raw.replace(/\D/g, "").slice(0, 9);
+}
+
 function clampInt(raw: string) {
-  const cleaned = raw.replace(/[^0-9]/g, "");
+  const cleaned = normalizeAmountInput(raw);
   const n = cleaned ? parseInt(cleaned, 10) : 0;
   return Number.isFinite(n) ? n : 0;
 }
@@ -110,6 +115,8 @@ export default function ExitCheckoutModalContent({
   onCancel: () => void;
   onConfirm: (payload: ExitCheckoutSubmitPayload) => void;
 }) {
+  const amountInputRef = React.useRef<HTMLInputElement | null>(null);
+
   const [nowIso, setNowIso] = React.useState<string>(() =>
     new Date().toISOString()
   );
@@ -117,14 +124,25 @@ export default function ExitCheckoutModalContent({
   const [generateReceipt, setGenerateReceipt] = React.useState<boolean>(true);
 
   React.useEffect(() => {
-    const t = setInterval(() => setNowIso(new Date().toISOString()), 15_000);
-    return () => clearInterval(t);
+    const t = window.setInterval(() => {
+      setNowIso(new Date().toISOString());
+    }, 15_000);
+
+    return () => window.clearInterval(t);
   }, []);
 
-  const entryAt = React.useMemo(
-    () => new Date(data.entryAtIso),
-    [data.entryAtIso]
-  );
+  React.useEffect(() => {
+    setNowIso(new Date().toISOString());
+    setAmountPaidText("");
+    setGenerateReceipt(true);
+
+    window.setTimeout(() => {
+      amountInputRef.current?.focus();
+      amountInputRef.current?.select();
+    }, 40);
+  }, [data.parkingSessionId]);
+
+  const entryAt = React.useMemo(() => new Date(data.entryAtIso), [data.entryAtIso]);
   const exitAt = React.useMemo(() => new Date(nowIso), [nowIso]);
 
   const suggestion = React.useMemo(() => {
@@ -135,15 +153,55 @@ export default function ExitCheckoutModalContent({
     });
   }, [data.vehicle.type, entryAt, exitAt]);
 
-  const amountPaid = React.useMemo(
-    () => clampInt(amountPaidText),
-    [amountPaidText]
-  );
+  const amountPaid = React.useMemo(() => clampInt(amountPaidText), [amountPaidText]);
+
+  const difference = amountPaid - suggestion.suggestedAmount;
   const canConfirm = amountPaid > 0;
 
-  const { Icon: VehicleIcon, label: vehicleLabel } = vehicleMeta(
-    data.vehicle.type
-  );
+  const { Icon: VehicleIcon, label: vehicleLabel } = vehicleMeta(data.vehicle.type);
+
+  const amountStatus = React.useMemo(() => {
+    if (amountPaid <= 0) {
+      return {
+        tone: "warning" as const,
+        label: "Ingresa un valor mayor a 0.",
+      };
+    }
+
+    if (difference === 0) {
+      return {
+        tone: "ok" as const,
+        label: "Coincide con el valor sugerido.",
+      };
+    }
+
+    if (difference > 0) {
+      return {
+        tone: "info" as const,
+        label: `Recibes ${formatCOP(difference)} por encima del sugerido.`,
+      };
+    }
+
+    return {
+      tone: "warning" as const,
+      label: `Recibes ${formatCOP(Math.abs(difference))} por debajo del sugerido.`,
+    };
+  }, [amountPaid, difference, suggestion.suggestedAmount]);
+
+  function handleConfirm() {
+    if (!canConfirm) return;
+
+    const payload: ExitCheckoutSubmitPayload = {
+      parkingSessionId: data.parkingSessionId,
+      method: "CASH",
+      amountPaid,
+      suggestedAmount: suggestion.suggestedAmount,
+      exitAtIsoClient: nowIso,
+      generateReceipt,
+    };
+
+    onConfirm(payload);
+  }
 
   return (
     <div className="max-h-[70vh] overflow-y-auto px-4 pb-4 sm:px-5 sm:pb-5">
@@ -158,6 +216,7 @@ export default function ExitCheckoutModalContent({
               {data.vehicle.plate}{" "}
               <span className="font-medium text-zinc-500">• {vehicleLabel}</span>
             </div>
+
             <div className="mt-0.5 text-sm text-zinc-600">
               Código:{" "}
               <span className="font-mono text-[13px]">{data.ticketCode}</span>
@@ -171,11 +230,13 @@ export default function ExitCheckoutModalContent({
             label="Entrada"
             value={formatBogota(data.entryAtIso)}
           />
+
           <InfoRow
             icon={<Clock className="size-4 text-rose-700" />}
             label="Salida"
             value={formatBogota(nowIso)}
           />
+
           <InfoRow
             icon={<Clock className="size-4 text-rose-700" />}
             label="Duración"
@@ -214,6 +275,16 @@ export default function ExitCheckoutModalContent({
 
           <button
             type="button"
+            onClick={() =>
+              setAmountPaidText(String(Math.max(0, suggestion.suggestedAmount + 1000)))
+            }
+            className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
+          >
+            + $1.000
+          </button>
+
+          <button
+            type="button"
             onClick={() => setAmountPaidText("")}
             className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
           >
@@ -231,7 +302,7 @@ export default function ExitCheckoutModalContent({
                   Generar recibo
                 </div>
                 <div className="mt-1 text-xs text-zinc-500">
-                  El pago se registra en efectivo.
+                  Método de pago: efectivo.
                 </div>
               </div>
 
@@ -298,9 +369,11 @@ export default function ExitCheckoutModalContent({
               </div>
 
               <input
+                ref={amountInputRef}
                 value={amountPaidText}
-                onChange={(e) => setAmountPaidText(e.target.value)}
+                onChange={(e) => setAmountPaidText(normalizeAmountInput(e.target.value))}
                 inputMode="numeric"
+                autoComplete="off"
                 placeholder="Ej: 8000"
                 className={cx(
                   "h-12 w-full rounded-2xl border bg-white pl-11 pr-4",
@@ -315,14 +388,30 @@ export default function ExitCheckoutModalContent({
               {amountPaid > 0 ? formatCOP(amountPaid) : "—"}
             </div>
 
-            {!canConfirm ? (
-              <div className="mt-3 flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3">
-                <AlertTriangle className="mt-0.5 size-4 text-amber-700" />
-                <div className="text-xs font-medium text-amber-900">
-                  Ingresa un valor mayor a 0.
+            <div aria-live="polite" className="mt-3">
+              {amountStatus.tone === "ok" ? (
+                <div className="flex items-start gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
+                  <CheckCircle2 className="mt-0.5 size-4 text-emerald-700" />
+                  <div className="text-xs font-medium text-emerald-900">
+                    {amountStatus.label}
+                  </div>
                 </div>
-              </div>
-            ) : null}
+              ) : amountStatus.tone === "info" ? (
+                <div className="flex items-start gap-2 rounded-2xl border border-sky-200 bg-sky-50 p-3">
+                  <BadgeDollarSign className="mt-0.5 size-4 text-sky-700" />
+                  <div className="text-xs font-medium text-sky-900">
+                    {amountStatus.label}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+                  <AlertTriangle className="mt-0.5 size-4 text-amber-700" />
+                  <div className="text-xs font-medium text-amber-900">
+                    {amountStatus.label}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -339,17 +428,7 @@ export default function ExitCheckoutModalContent({
 
           <button
             type="button"
-            onClick={() => {
-              const payload: ExitCheckoutSubmitPayload = {
-                parkingSessionId: data.parkingSessionId,
-                method: "CASH",
-                amountPaid,
-                suggestedAmount: suggestion.suggestedAmount,
-                exitAtIsoClient: nowIso,
-                generateReceipt,
-              };
-              onConfirm(payload);
-            }}
+            onClick={handleConfirm}
             disabled={!canConfirm}
             className={cx(
               "inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl px-5",
