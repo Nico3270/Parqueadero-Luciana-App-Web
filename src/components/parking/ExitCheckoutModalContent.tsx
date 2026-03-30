@@ -11,11 +11,9 @@ import {
   Clock,
   CalendarClock,
   BadgeDollarSign,
-  CreditCard,
-  Banknote,
-  Smartphone,
   ArrowRight,
   AlertTriangle,
+  Printer,
 } from "lucide-react";
 
 import { getSuggestedPrice } from "@/lib/pricing/suggestedPricing";
@@ -45,6 +43,7 @@ export type ExitCheckoutSubmitPayload = {
   amountPaid: number;
   suggestedAmount: number;
   exitAtIsoClient: string;
+  generateReceipt: boolean;
 };
 
 function cx(...classes: Array<string | false | null | undefined>) {
@@ -102,18 +101,6 @@ function vehicleMeta(type: VehicleType) {
   }
 }
 
-const METHOD_UI: Array<{
-  method: PaymentMethod;
-  label: string;
-  short: string;
-  Icon: React.ComponentType<{ className?: string }>;
-}> = [
-  { method: "CASH", label: "Efectivo", short: "Efe", Icon: Banknote },
-  { method: "NEQUI", label: "Nequi", short: "Neq", Icon: Smartphone },
-  { method: "TRANSFER", label: "Transfer", short: "Trans", Icon: CreditCard },
-  { method: "OTHER", label: "Otro", short: "Otro", Icon: BadgeDollarSign },
-];
-
 export default function ExitCheckoutModalContent({
   data,
   onCancel,
@@ -123,16 +110,21 @@ export default function ExitCheckoutModalContent({
   onCancel: () => void;
   onConfirm: (payload: ExitCheckoutSubmitPayload) => void;
 }) {
-  const [nowIso, setNowIso] = React.useState<string>(() => new Date().toISOString());
-  const [method, setMethod] = React.useState<PaymentMethod>("CASH");
+  const [nowIso, setNowIso] = React.useState<string>(() =>
+    new Date().toISOString()
+  );
   const [amountPaidText, setAmountPaidText] = React.useState<string>("");
+  const [generateReceipt, setGenerateReceipt] = React.useState<boolean>(true);
 
   React.useEffect(() => {
     const t = setInterval(() => setNowIso(new Date().toISOString()), 15_000);
     return () => clearInterval(t);
   }, []);
 
-  const entryAt = React.useMemo(() => new Date(data.entryAtIso), [data.entryAtIso]);
+  const entryAt = React.useMemo(
+    () => new Date(data.entryAtIso),
+    [data.entryAtIso]
+  );
   const exitAt = React.useMemo(() => new Date(nowIso), [nowIso]);
 
   const suggestion = React.useMemo(() => {
@@ -143,13 +135,18 @@ export default function ExitCheckoutModalContent({
     });
   }, [data.vehicle.type, entryAt, exitAt]);
 
-  const amountPaid = React.useMemo(() => clampInt(amountPaidText), [amountPaidText]);
+  const amountPaid = React.useMemo(
+    () => clampInt(amountPaidText),
+    [amountPaidText]
+  );
   const canConfirm = amountPaid > 0;
 
-  const { Icon: VehicleIcon, label: vehicleLabel } = vehicleMeta(data.vehicle.type);
+  const { Icon: VehicleIcon, label: vehicleLabel } = vehicleMeta(
+    data.vehicle.type
+  );
 
   return (
-    <div className="max-h-[70vh] overflow-y-auto px-5 pb-5 pr-6">
+    <div className="max-h-[70vh] overflow-y-auto px-4 pb-4 sm:px-5 sm:pb-5">
       <div className="rounded-2xl border border-rose-200/70 bg-rose-50 p-4">
         <div className="flex items-center gap-3">
           <div className="grid size-12 place-items-center rounded-2xl border border-rose-200 bg-white shadow-sm">
@@ -162,7 +159,8 @@ export default function ExitCheckoutModalContent({
               <span className="font-medium text-zinc-500">• {vehicleLabel}</span>
             </div>
             <div className="mt-0.5 text-sm text-zinc-600">
-              Código: <span className="font-mono text-[13px]">{data.ticketCode}</span>
+              Código:{" "}
+              <span className="font-mono text-[13px]">{data.ticketCode}</span>
             </div>
           </div>
         </div>
@@ -175,7 +173,7 @@ export default function ExitCheckoutModalContent({
           />
           <InfoRow
             icon={<Clock className="size-4 text-rose-700" />}
-            label="Salida (ahora)"
+            label="Salida"
             value={formatBogota(nowIso)}
           />
           <InfoRow
@@ -189,10 +187,11 @@ export default function ExitCheckoutModalContent({
       <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-zinc-900">Valor sugerido</div>
+            <div className="text-sm font-semibold text-zinc-900">
+              Valor sugerido
+            </div>
             <div className="mt-1 text-xs text-zinc-500">
-              Regla aplicada:{" "}
-              <span className="font-semibold text-zinc-700">{suggestion.tierLabel}</span>
+              {suggestion.tierLabel}
             </div>
           </div>
 
@@ -208,7 +207,7 @@ export default function ExitCheckoutModalContent({
           <button
             type="button"
             onClick={() => setAmountPaidText(String(suggestion.suggestedAmount))}
-            className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-100"
+            className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-100"
           >
             Usar sugerido
           </button>
@@ -216,7 +215,7 @@ export default function ExitCheckoutModalContent({
           <button
             type="button"
             onClick={() => setAmountPaidText("")}
-            className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+            className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
           >
             Limpiar
           </button>
@@ -226,58 +225,72 @@ export default function ExitCheckoutModalContent({
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-12">
         <div className="lg:col-span-7">
           <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-            <div className="text-sm font-semibold text-zinc-900">Método de pago</div>
-            <p className="mt-1 text-xs text-zinc-500">Selecciona cómo pagó el cliente.</p>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">
+                  Generar recibo
+                </div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  El pago se registra en efectivo.
+                </div>
+              </div>
 
-            <div className="mt-3 grid grid-cols-4 gap-2 sm:gap-3">
-              {METHOD_UI.map(({ method: m, label, short, Icon }) => {
-                const selected = m === method;
+              <div className="hidden rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-700 sm:inline-flex">
+                Efectivo
+              </div>
+            </div>
 
-                return (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setMethod(m)}
-                    className={cx(
-                      "rounded-2xl border p-2.5 text-center transition sm:p-3",
-                      "focus:outline-none focus:ring-4 focus:ring-rose-200",
-                      selected
-                        ? "border-rose-300 bg-rose-50 shadow-sm"
-                        : "border-zinc-200 bg-white hover:bg-zinc-50"
-                    )}
-                    aria-pressed={selected}
-                  >
-                    <div
-                      className={cx(
-                        "mx-auto grid size-10 place-items-center rounded-xl border bg-white shadow-sm",
-                        selected ? "border-rose-200" : "border-zinc-200"
-                      )}
-                    >
-                      <Icon
-                        className={cx(
-                          "size-5",
-                          selected ? "text-rose-700" : "text-zinc-700"
-                        )}
-                      />
-                    </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setGenerateReceipt(true)}
+                aria-pressed={generateReceipt}
+                className={cx(
+                  "inline-flex h-12 items-center justify-center gap-2 rounded-2xl border text-sm font-semibold shadow-sm transition",
+                  "focus:outline-none focus:ring-4 focus:ring-rose-200",
+                  generateReceipt
+                    ? "border-rose-300 bg-rose-50 text-rose-800"
+                    : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                )}
+              >
+                <Printer
+                  className={cx(
+                    "size-4",
+                    generateReceipt ? "text-rose-700" : "text-zinc-500"
+                  )}
+                />
+                Sí imprimir
+              </button>
 
-                    <div className="mt-2 text-[11px] font-semibold text-zinc-900 sm:hidden">
-                      {short}
-                    </div>
-                    <div className="mt-2 hidden text-xs font-semibold text-zinc-900 sm:block">
-                      {label}
-                    </div>
-                  </button>
-                );
-              })}
+              <button
+                type="button"
+                onClick={() => setGenerateReceipt(false)}
+                aria-pressed={!generateReceipt}
+                className={cx(
+                  "inline-flex h-12 items-center justify-center gap-2 rounded-2xl border text-sm font-semibold shadow-sm transition",
+                  "focus:outline-none focus:ring-4 focus:ring-rose-200",
+                  !generateReceipt
+                    ? "border-rose-300 bg-rose-50 text-rose-800"
+                    : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                )}
+              >
+                <Printer
+                  className={cx(
+                    "size-4",
+                    !generateReceipt ? "text-rose-700" : "text-zinc-500"
+                  )}
+                />
+                No imprimir
+              </button>
             </div>
           </div>
         </div>
 
         <div className="lg:col-span-5">
           <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-            <div className="text-sm font-semibold text-zinc-900">Valor recibido</div>
-            <p className="mt-1 text-xs text-zinc-500">Escribe el valor (COP).</p>
+            <div className="text-sm font-semibold text-zinc-900">
+              Valor recibido
+            </div>
 
             <div className="mt-3 relative">
               <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
@@ -303,10 +316,10 @@ export default function ExitCheckoutModalContent({
             </div>
 
             {!canConfirm ? (
-              <div className="mt-2 flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+              <div className="mt-3 flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3">
                 <AlertTriangle className="mt-0.5 size-4 text-amber-700" />
                 <div className="text-xs font-medium text-amber-900">
-                  Ingresa un valor mayor a 0 para continuar.
+                  Ingresa un valor mayor a 0.
                 </div>
               </div>
             ) : null}
@@ -314,7 +327,7 @@ export default function ExitCheckoutModalContent({
         </div>
       </div>
 
-      <div className="sticky bottom-0 mt-4 bg-white/85 py-3 backdrop-blur-sm">
+      <div className="sticky bottom-0 mt-4 bg-white/90 py-3 backdrop-blur-sm">
         <div className="flex flex-col gap-2 sm:flex-row">
           <button
             type="button"
@@ -329,10 +342,11 @@ export default function ExitCheckoutModalContent({
             onClick={() => {
               const payload: ExitCheckoutSubmitPayload = {
                 parkingSessionId: data.parkingSessionId,
-                method,
+                method: "CASH",
                 amountPaid,
                 suggestedAmount: suggestion.suggestedAmount,
                 exitAtIsoClient: nowIso,
+                generateReceipt,
               };
               onConfirm(payload);
             }}
@@ -350,10 +364,6 @@ export default function ExitCheckoutModalContent({
             <ArrowRight className="size-4" />
           </button>
         </div>
-
-        <p className="mt-2 text-xs text-zinc-500">
-          Nota: la hora real de salida se fija en el servidor para evitar problemas de reloj.
-        </p>
       </div>
     </div>
   );

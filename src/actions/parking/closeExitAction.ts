@@ -21,6 +21,11 @@ export type CloseExitPayload = {
    * Estación/impresora destino para el print agent local.
    */
   stationId?: string;
+  /**
+   * Define si se debe generar o no el recibo de salida.
+   * Si no se envía, por compatibilidad se asume true.
+   */
+  generateReceipt?: boolean;
 };
 
 export type CloseExitResult =
@@ -33,7 +38,8 @@ export type CloseExitResult =
       finalAmount: number;
       amountPaid: number;
       paymentId: string;
-      printJobId: string;
+      printJobId: string | null;
+      receiptGenerated: boolean;
     }
   | {
       ok: false;
@@ -107,6 +113,8 @@ export async function closeExitAction(
     const suggestedAmount = Math.max(0, toInt(payload.suggestedAmount));
     const amountPaid = Math.max(0, toInt(payload.amountPaid));
     const method = payload.method;
+    const stationId = safeStationId(payload.stationId);
+    const generateReceipt = payload.generateReceipt !== false;
 
     if (!parkingSessionId) {
       return {
@@ -137,7 +145,6 @@ export async function closeExitAction(
 
     // En el flujo actual el valor final es el recibido manualmente
     const finalAmount = amountPaid;
-    const stationId = safeStationId(payload.stationId);
 
     const res = await prisma.$transaction(
       async (tx) => {
@@ -211,65 +218,67 @@ export async function closeExitAction(
             operatorId: user.id,
             shiftId: updated.shiftId ?? undefined,
           },
-          select: { id: true, paidAt: true },
-        });
-
-        const printJob = await tx.printJob.create({
-          data: {
-            type: PrintJobType.EXIT_RECEIPT,
-            status: PrintJobStatus.PENDING,
-            stationId,
-            sessionId: updated.id,
-            paymentId: payment.id,
-            createdById: user.id,
-            copies: 1,
-            priority: 0,
-            payload: {
-              kind: "EXIT_RECEIPT",
-              stationId,
-              parkingName: "Parqueadero Luca",
-
-              parkingSessionId: updated.id,
-              ticketCode: updated.ticketCode,
-              scanCode: updated.scanCode,
-              paymentId: payment.id,
-
-              vehicle: {
-                id: ps.vehicle.id,
-                type: ps.vehicle.type,
-                plate: ps.vehicle.plate,
-                plateNormalized: ps.vehicle.plateNormalized,
-              },
-
-              entryAtIso: ps.entryAt.toISOString(),
-              exitAtIso: exitAt.toISOString(),
-              durationMinutes,
-
-              suggestedAmount,
-              finalAmount,
-              amountPaid,
-              method,
-              methodLabel: methodLabel(method),
-
-              operator: {
-                id: user.id,
-                name: user.name ?? null,
-                email: user.email ?? null,
-              },
-
-              barcode: {
-                type: "SCAN_CODE",
-                value: updated.scanCode,
-              },
-
-              qr: {
-                type: "SCAN_CODE",
-                value: updated.scanCode,
-              },
-            },
-          },
           select: { id: true },
         });
+
+        const printJob = generateReceipt
+          ? await tx.printJob.create({
+              data: {
+                type: PrintJobType.EXIT_RECEIPT,
+                status: PrintJobStatus.PENDING,
+                stationId,
+                sessionId: updated.id,
+                paymentId: payment.id,
+                createdById: user.id,
+                copies: 1,
+                priority: 0,
+                payload: {
+                  kind: "EXIT_RECEIPT",
+                  stationId,
+                  parkingName: "Parqueadero Luca",
+
+                  parkingSessionId: updated.id,
+                  ticketCode: updated.ticketCode,
+                  scanCode: updated.scanCode,
+                  paymentId: payment.id,
+
+                  vehicle: {
+                    id: ps.vehicle.id,
+                    type: ps.vehicle.type,
+                    plate: ps.vehicle.plate,
+                    plateNormalized: ps.vehicle.plateNormalized,
+                  },
+
+                  entryAtIso: ps.entryAt.toISOString(),
+                  exitAtIso: exitAt.toISOString(),
+                  durationMinutes,
+
+                  suggestedAmount,
+                  finalAmount,
+                  amountPaid,
+                  method,
+                  methodLabel: methodLabel(method),
+
+                  operator: {
+                    id: user.id,
+                    name: user.name ?? null,
+                    email: user.email ?? null,
+                  },
+
+                  barcode: {
+                    type: "SCAN_CODE",
+                    value: updated.scanCode,
+                  },
+
+                  qr: {
+                    type: "SCAN_CODE",
+                    value: updated.scanCode,
+                  },
+                },
+              },
+              select: { id: true },
+            })
+          : null;
 
         return {
           ok: true as const,
@@ -280,7 +289,8 @@ export async function closeExitAction(
           finalAmount,
           amountPaid,
           paymentId: payment.id,
-          printJobId: printJob.id,
+          printJobId: printJob?.id ?? null,
+          receiptGenerated: Boolean(printJob),
         };
       },
       { isolationLevel: "Serializable" }

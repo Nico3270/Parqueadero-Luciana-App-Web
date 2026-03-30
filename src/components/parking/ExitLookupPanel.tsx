@@ -68,6 +68,18 @@ function formatBogota(isoUtc: string) {
   }
 }
 
+function formatCOP(value: number) {
+  try {
+    return new Intl.NumberFormat("es-CO", {
+      style: "currency",
+      currency: "COP",
+      maximumFractionDigits: 0,
+    }).format(value);
+  } catch {
+    return `${Math.round(value).toLocaleString("es-CO")} COP`;
+  }
+}
+
 function vehicleMeta(type: VehicleType) {
   switch (type) {
     case "CAR":
@@ -202,23 +214,38 @@ export default function ExitLookupPanel({
     setCloseSuccess(null);
 
     try {
-      const res = await closeExitAction({
+      const closePayload = {
         parkingSessionId: payload.parkingSessionId,
         method: payload.method,
         amountPaid: payload.amountPaid,
         suggestedAmount: payload.suggestedAmount,
         stationId,
-      });
+        generateReceipt: payload.generateReceipt,
+      } as Parameters<typeof closeExitAction>[0];
+
+      const res = await closeExitAction(closePayload);
 
       if (!res.ok) {
         setCloseError(res.message || "No se pudo registrar la salida.");
         return;
       }
 
+      const receiptGeneratedRaw = (res as { receiptGenerated?: unknown })
+        .receiptGenerated;
+
+      const receiptGenerated =
+        typeof receiptGeneratedRaw === "boolean"
+          ? receiptGeneratedRaw
+          : payload.generateReceipt;
+
       setCloseSuccess(
-        `Salida registrada • ${res.finalAmount.toLocaleString("es-CO")} COP`
+        receiptGenerated
+          ? `Salida registrada e impresión enviada • ${formatCOP(res.finalAmount)}`
+          : `Salida registrada sin recibo • ${formatCOP(res.finalAmount)}`
       );
+
       setOpen(false);
+      setLookupResult(null);
       requestAnimationFrame(() => inputRef.current?.focus());
     } catch {
       setCloseError("Ocurrió un error al registrar la salida. Intenta de nuevo.");
@@ -264,7 +291,10 @@ export default function ExitLookupPanel({
           <input type="hidden" name="stationId" value={stationId} />
 
           <div className="rounded-2xl border border-rose-200/70 bg-white/70 p-3 sm:p-4">
-            <label htmlFor="ticketOrPlate" className="text-sm font-semibold text-zinc-800">
+            <label
+              htmlFor="ticketOrPlate"
+              className="text-sm font-semibold text-zinc-800"
+            >
               Placa
             </label>
 
