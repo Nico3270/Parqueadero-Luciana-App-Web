@@ -46,16 +46,11 @@ const drawerWidth = 300;
 // Define acá tus rutas protegidas por rol
 const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   ADMIN: [
-    { label: "Dashboard", href: "/dashboard" },
-    { label: "Ingresos", href: "/ingresos" },
-    { label: "Vehículos", href: "/vehiculos" },
+    { label: "Diario", href: "/diario" },
     { label: "Mensualidades", href: "/mensualidades" },
-    { label: "Reportes", href: "/reportes" },
-    { label: "Ajustes", href: "/ajustes" },
   ],
   OPERATOR: [
-    { label: "Ingresos", href: "/ingresos" },
-    { label: "Vehículos", href: "/vehiculos" },
+    { label: "Diario", href: "/diario" },
     { label: "Mensualidades", href: "/mensualidades" },
   ],
 };
