@@ -50,7 +50,7 @@ function actionButtonClassName(
   color: "indigo" | "sky" | "emerald" | "amber" | "zinc"
 ) {
   const base =
-    "!h-11 !justify-center !rounded-full !border !font-medium !shadow-sm hover:!shadow-md";
+    "!h-11 !justify-center !rounded-full !border !font-medium !shadow-sm transition hover:!shadow-md";
 
   switch (color) {
     case "indigo":
@@ -124,11 +124,11 @@ export default async function SubscriptionDetailPage({ params }: PageProps) {
 
   return (
     <main className="min-h-[100dvh] bg-zinc-50 text-zinc-950">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-3 py-0 sm:px-4 lg:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-2 ">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-3 py-2 sm:px-4 lg:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <Link
             href="/mensualidades"
-            className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-yellow-500 px-3 py-1.5 text-sm font-medium text-gray-600 transition hover:border-zinc-300 hover:text-zinc-950"
+            className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:border-zinc-300 hover:text-zinc-950"
           >
             <ArrowLeft className="h-4 w-4" />
             Volver a mensualidades
@@ -170,6 +170,7 @@ export default async function SubscriptionDetailPage({ params }: PageProps) {
               vehicle={detail.vehicle}
               holder={detail.holder}
               action={renewSubscriptionAction}
+              triggerLabel="Reajustar mensualidad"
               className={actionButtonClassName("emerald")}
             />
 

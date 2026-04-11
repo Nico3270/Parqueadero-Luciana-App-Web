@@ -222,7 +222,9 @@ export async function renewSubscriptionAction(
     const session = await auth();
 
     if (!session?.user?.id) {
-      return buildErrorState("Debes iniciar sesión para renovar la mensualidad.");
+      return buildErrorState(
+        "Debes iniciar sesión para actualizar la mensualidad."
+      );
     }
 
     const user = await prisma.user.findUnique({
@@ -240,7 +242,7 @@ export async function renewSubscriptionAction(
 
     if (!user.isActive) {
       return buildErrorState(
-        "Tu usuario está inactivo. No puedes renovar mensualidades."
+        "Tu usuario está inactivo. No puedes actualizar mensualidades."
       );
     }
 
@@ -265,13 +267,12 @@ export async function renewSubscriptionAction(
     const notesRaw = trimOrNull(formData.get("notes"));
     const stationId = normalizeStationId(trimOrNull(formData.get("stationId")));
 
-    const initialPaymentAmount = initialPaymentAmountRaw
-      ? parsePositiveInt(initialPaymentAmountRaw)
-      : 0;
+    const parsedInitialPaymentAmount = parsePositiveInt(initialPaymentAmountRaw);
+    const initialPaymentAmount = parsedInitialPaymentAmount ?? 0;
 
     const shouldPrintReceipt = parseReceiptBoolean(
       formData.get("printReceipt"),
-      (initialPaymentAmount ?? 0) > 0
+      initialPaymentAmount > 0
     );
 
     const errors: Partial<Record<RenewSubscriptionField, string>> = {};
@@ -290,30 +291,30 @@ export async function renewSubscriptionAction(
       errors.endAt = "La fecha final no es válida.";
     }
 
-    const amount = parsePositiveInt(amountRaw);
-    if (!amount) {
+    const requestedAmount = parsePositiveInt(amountRaw);
+    if (!requestedAmount) {
       errors.amount = "Ingresa un valor válido mayor a 0.";
     }
 
-    if (initialPaymentAmountRaw && !initialPaymentAmount) {
-      errors.initialPaymentAmount = "El abono inicial no es válido.";
+    if (initialPaymentAmountRaw && initialPaymentAmount <= 0) {
+      errors.initialPaymentAmount = "El abono no es válido.";
     }
 
     const initialPaymentMethod = initialPaymentAmount
       ? parsePaymentMethod(initialPaymentMethodRaw)
       : null;
 
-    if (initialPaymentAmount && !initialPaymentMethod) {
+    if (initialPaymentAmount > 0 && !initialPaymentMethod) {
       errors.initialPaymentMethod = "Selecciona un método de pago válido.";
     }
 
-    const initialPaymentPaidAt = initialPaymentAmount
-      ? parseBogotaDateTimeLocal(initialPaymentPaidAtRaw)
-      : null;
+    const initialPaymentPaidAt =
+      initialPaymentAmount > 0
+        ? parseBogotaDateTimeLocal(initialPaymentPaidAtRaw)
+        : null;
 
-    if (initialPaymentAmount && !initialPaymentPaidAt) {
-      errors.initialPaymentPaidAt =
-        "La fecha y hora del abono inicial no es válida.";
+    if (initialPaymentAmount > 0 && !initialPaymentPaidAt) {
+      errors.initialPaymentPaidAt = "La fecha y hora del abono no es válida.";
     }
 
     const reference = normalizeOptionalText(referenceRaw, { maxLength: 120 });
@@ -329,15 +330,6 @@ export async function renewSubscriptionAction(
 
     if (startAt && endAt && endAt.getTime() <= startAt.getTime()) {
       errors.endAt = "La fecha final debe ser mayor que la fecha inicial.";
-    }
-
-    if (
-      amount &&
-      initialPaymentAmount &&
-      initialPaymentAmount > amount
-    ) {
-      errors.initialPaymentAmount =
-        "El abono inicial no puede ser mayor al valor pactado.";
     }
 
     if (Object.keys(errors).length > 0) {
@@ -394,7 +386,7 @@ export async function renewSubscriptionAction(
         if (!baseSubscription) {
           return {
             ok: false as const,
-            message: "La mensualidad base no existe o ya no está disponible.",
+            message: "La mensualidad no existe o ya no está disponible.",
             errors: {
               currentSubscriptionId: "No se encontró la mensualidad base.",
             },
@@ -404,9 +396,9 @@ export async function renewSubscriptionAction(
         if (baseSubscription.status === SubscriptionStatus.CANCELED) {
           return {
             ok: false as const,
-            message: "No puedes renovar una mensualidad cancelada.",
+            message: "No puedes ajustar una mensualidad cancelada.",
             errors: {
-              currentSubscriptionId: "La mensualidad base está cancelada.",
+              currentSubscriptionId: "La mensualidad está cancelada.",
             },
           };
         }
@@ -414,6 +406,9 @@ export async function renewSubscriptionAction(
         const overlappingSubscription = await tx.subscription.findFirst({
           where: {
             vehicleId: baseSubscription.vehicleId,
+            id: {
+              not: baseSubscription.id,
+            },
             status: {
               not: SubscriptionStatus.CANCELED,
             },
@@ -426,38 +421,47 @@ export async function renewSubscriptionAction(
           },
           select: {
             id: true,
-            startAt: true,
-            endAt: true,
-            status: true,
           },
         });
 
         if (overlappingSubscription) {
           return {
             ok: false as const,
-            message:
-              overlappingSubscription.id === baseSubscription.id
-                ? "El nuevo periodo se cruza con la mensualidad actual."
-                : "El nuevo periodo se cruza con otra mensualidad existente.",
+            message: "El periodo se cruza con otra mensualidad existente.",
             errors: {
-              startAt:
-                overlappingSubscription.id === baseSubscription.id
-                  ? "La nueva mensualidad debe iniciar cuando termine la actual o después."
-                  : "Existe un cruce con otra mensualidad.",
+              startAt: "Existe un cruce con otra mensualidad.",
               endAt: "Existe un cruce con otra mensualidad.",
             },
           };
         }
 
-        const subscription = await tx.subscription.create({
+        const paymentAggregate = await tx.payment.aggregate({
+          where: {
+            subscriptionId: baseSubscription.id,
+            status: PaymentStatus.COMPLETED,
+          },
+          _sum: {
+            amount: true,
+          },
+        });
+
+        const totalPaidBefore = paymentAggregate._sum.amount ?? 0;
+
+        const effectiveAmount = Math.max(
+          requestedAmount!,
+          totalPaidBefore + initialPaymentAmount
+        );
+
+        const updatedSubscription = await tx.subscription.update({
+          where: {
+            id: baseSubscription.id,
+          },
           data: {
-            vehicleId: baseSubscription.vehicleId,
-            customerId: baseSubscription.customerId,
             startAt: startAt!,
             endAt: endAt!,
-            amount: amount!,
+            amount: effectiveAmount,
+            notes: notes ?? null,
             status: SubscriptionStatus.ACTIVE,
-            notes: notes ?? baseSubscription.notes ?? null,
           },
           select: {
             id: true,
@@ -481,7 +485,7 @@ export async function renewSubscriptionAction(
           | null = null;
 
         if (
-          initialPaymentAmount &&
+          initialPaymentAmount > 0 &&
           initialPaymentMethod &&
           initialPaymentPaidAt
         ) {
@@ -491,7 +495,7 @@ export async function renewSubscriptionAction(
               method: initialPaymentMethod,
               amount: initialPaymentAmount,
               paidAt: initialPaymentPaidAt,
-              subscriptionId: subscription.id,
+              subscriptionId: updatedSubscription.id,
               operatorId: user.id,
               shiftId: currentShift?.id ?? null,
               reference: reference ?? null,
@@ -508,8 +512,11 @@ export async function renewSubscriptionAction(
           });
         }
 
-        const totalPaid = payment?.amount ?? 0;
-        const pendingAmount = Math.max(subscription.amount - totalPaid, 0);
+        const totalPaidAfter = totalPaidBefore + (payment?.amount ?? 0);
+        const pendingAmount = Math.max(
+          updatedSubscription.amount - totalPaidAfter,
+          0
+        );
 
         let printJobId: string | null = null;
 
@@ -522,11 +529,11 @@ export async function renewSubscriptionAction(
             copies: 1,
             priority: 10,
             subscription: {
-              id: subscription.id,
-              status: subscription.status,
-              startAt: subscription.startAt,
-              endAt: subscription.endAt,
-              amount: subscription.amount,
+              id: updatedSubscription.id,
+              status: updatedSubscription.status,
+              startAt: updatedSubscription.startAt,
+              endAt: updatedSubscription.endAt,
+              amount: updatedSubscription.amount,
             },
             vehicle: {
               id: baseSubscription.vehicle.id,
@@ -550,7 +557,7 @@ export async function renewSubscriptionAction(
                 }
               : null,
             totals: {
-              totalPaidBefore: 0,
+              totalPaidBefore,
             },
             operator: {
               id: user.id,
@@ -566,15 +573,19 @@ export async function renewSubscriptionAction(
 
         return {
           ok: true as const,
-          subscriptionId: subscription.id,
+          subscriptionId: updatedSubscription.id,
           paymentId: payment?.id ?? null,
           printJobId,
           receiptQueued: shouldPrintReceipt,
           vehiclePlate: baseSubscription.vehicle.plate,
           vehiclePlateNormalized: baseSubscription.vehicle.plateNormalized,
           customerName: baseSubscription.customer.fullName,
-          totalPaid,
+          requestedAmount: requestedAmount!,
+          effectiveAmount: updatedSubscription.amount,
+          totalPaidBefore,
+          totalPaidAfter,
           pendingAmount,
+          hadNewPayment: Boolean(payment),
         };
       },
       {
@@ -594,14 +605,21 @@ export async function renewSubscriptionAction(
     revalidatePath(`/mensualidades/${transactionResult.vehiclePlate}`);
     revalidatePath(`/mensualidades/${transactionResult.vehiclePlateNormalized}`);
 
+    const amountAdjustedMessage =
+      transactionResult.effectiveAmount > transactionResult.requestedAmount
+        ? ` El valor de la mensualidad se ajustó automáticamente a ${formatCurrencyCop(
+            transactionResult.effectiveAmount
+          )} para conservar el historial de pagos.`
+        : "";
+
     const balanceMessage =
-      transactionResult.totalPaid > 0
+      transactionResult.totalPaidAfter > 0
         ? transactionResult.pendingAmount > 0
-          ? `Mensualidad renovada correctamente. Saldo pendiente: ${formatCurrencyCop(
+          ? `Mensualidad actualizada correctamente. Saldo pendiente: ${formatCurrencyCop(
               transactionResult.pendingAmount
             )}.`
-          : "Mensualidad renovada correctamente y quedó pagada en su totalidad."
-        : "Mensualidad renovada correctamente.";
+          : "Mensualidad actualizada correctamente y quedó pagada en su totalidad."
+        : "Mensualidad actualizada correctamente.";
 
     const receiptMessage = transactionResult.receiptQueued
       ? " Recibo enviado a impresión."
@@ -609,12 +627,12 @@ export async function renewSubscriptionAction(
 
     return {
       ok: true,
-      message: `${balanceMessage}${receiptMessage}`,
+      message: `${balanceMessage}${amountAdjustedMessage}${receiptMessage}`,
       errors: {},
     };
   } catch (error) {
     console.error(
-      "[renewSubscriptionAction] Error renovando mensualidad:",
+      "[renewSubscriptionAction] Error ajustando mensualidad:",
       error
     );
 
@@ -624,12 +642,12 @@ export async function renewSubscriptionAction(
       error instanceof Prisma.PrismaClientValidationError
     ) {
       return buildErrorState(
-        "No fue posible renovar la mensualidad por un problema de base de datos."
+        "No fue posible actualizar la mensualidad por un problema de base de datos."
       );
     }
 
     return buildErrorState(
-      "No fue posible renovar la mensualidad en este momento."
+      "No fue posible actualizar la mensualidad en este momento."
     );
   }
 }

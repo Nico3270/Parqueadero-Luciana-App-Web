@@ -349,7 +349,8 @@ export async function registerSubscriptionPaymentAction(
         if (subscription.status === SubscriptionStatus.CANCELED) {
           return {
             ok: false as const,
-            message: "No puedes registrar pagos sobre una mensualidad cancelada.",
+            message:
+              "No puedes registrar pagos sobre una mensualidad cancelada.",
             errors: {
               subscriptionId: "La mensualidad está cancelada.",
             },
@@ -384,7 +385,9 @@ export async function registerSubscriptionPaymentAction(
             ok: false as const,
             message: "El valor del abono supera el saldo pendiente.",
             errors: {
-              amount: `El máximo permitido es ${pendingAmount}.`,
+              amount: `El máximo permitido es ${formatCurrencyCop(
+                pendingAmount
+              )}.`,
             },
           };
         }

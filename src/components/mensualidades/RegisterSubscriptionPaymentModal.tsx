@@ -11,6 +11,7 @@ import {
   Landmark,
   Loader2,
   Plus,
+  Receipt,
   Smartphone,
   X,
 } from "lucide-react";
@@ -109,7 +110,7 @@ function getPaymentMethodIcon(method: PaymentMethod) {
   }
 }
 
-function fieldErrorClass(hasError: boolean) {
+function fieldClass(hasError: boolean) {
   return [
     "h-10 w-full rounded-2xl border bg-white px-3 text-sm text-zinc-900 outline-none transition",
     hasError
@@ -118,9 +119,9 @@ function fieldErrorClass(hasError: boolean) {
   ].join(" ");
 }
 
-function textareaErrorClass(hasError: boolean) {
+function textareaClass(hasError: boolean) {
   return [
-    "min-h-[88px] w-full resize-none rounded-2xl border bg-white px-3 py-2.5 text-sm text-zinc-900 outline-none transition",
+    "min-h-[96px] w-full resize-none rounded-2xl border bg-white px-3 py-2.5 text-sm text-zinc-900 outline-none transition",
     hasError
       ? "border-red-300 ring-2 ring-red-100"
       : "border-zinc-200 focus:border-zinc-300",
@@ -225,8 +226,9 @@ export default function RegisterSubscriptionPaymentModal({
 
   const isAvailable = Boolean(subscription);
   const pendingAmount = subscription?.pendingAmount ?? 0;
+  const totalPaid = subscription?.totalPaid ?? 0;
+  const subscriptionAmount = subscription?.amount ?? 0;
   const isFullyPaid = isAvailable && pendingAmount <= 0;
-
   const canOpen = isAvailable && !isFullyPaid;
 
   const defaultAmount = useMemo(() => {
@@ -241,6 +243,7 @@ export default function RegisterSubscriptionPaymentModal({
   const [method, setMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
+  const [printReceipt, setPrintReceipt] = useState(true);
 
   const resetForm = React.useCallback(() => {
     setAmount(defaultAmount);
@@ -248,6 +251,7 @@ export default function RegisterSubscriptionPaymentModal({
     setMethod(PaymentMethod.CASH);
     setReference("");
     setNotes("");
+    setPrintReceipt(true);
   }, [defaultAmount]);
 
   useEffect(() => {
@@ -284,6 +288,11 @@ export default function RegisterSubscriptionPaymentModal({
   }, [state.ok, onRegistered, resetForm, router]);
 
   const amountNumber = Number(amount || 0);
+  const safeAmountNumber = Number.isFinite(amountNumber) ? amountNumber : 0;
+  const estimatedPendingAfterPayment =
+    subscription && safeAmountNumber > 0
+      ? Math.max(pendingAmount - safeAmountNumber, 0)
+      : pendingAmount;
 
   return (
     <>
@@ -322,7 +331,7 @@ export default function RegisterSubscriptionPaymentModal({
             role="dialog"
             aria-modal="true"
             aria-labelledby="register-subscription-payment-title"
-            className="flex max-h-[80dvh] w-full max-w-xl flex-col overflow-hidden rounded-[28px] border border-zinc-200 bg-white shadow-2xl"
+            className="flex max-h-[88dvh] w-full max-w-xl flex-col overflow-hidden rounded-[28px] border border-zinc-200 bg-white shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
@@ -349,14 +358,14 @@ export default function RegisterSubscriptionPaymentModal({
             </div>
 
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <SummaryItem
                   label="Valor pactado"
-                  value={formatCurrency(subscription?.amount ?? 0)}
+                  value={formatCurrency(subscriptionAmount)}
                 />
                 <SummaryItem
                   label="Abonado"
-                  value={formatCurrency(subscription?.totalPaid ?? 0)}
+                  value={formatCurrency(totalPaid)}
                 />
                 <SummaryItem
                   label="Pendiente"
@@ -365,6 +374,11 @@ export default function RegisterSubscriptionPaymentModal({
                     pendingAmount > 0 ? "text-zinc-900" : "text-emerald-600"
                   }
                 />
+              </div>
+
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-700">
+                Registra un abono adicional sobre la mensualidad actual. El
+                historial se conserva y el saldo se recalcula automáticamente.
               </div>
 
               {state.message ? (
@@ -386,6 +400,12 @@ export default function RegisterSubscriptionPaymentModal({
                   name="subscriptionId"
                   value={subscription?.id ?? ""}
                 />
+                <input type="hidden" name="method" value={method} />
+                <input
+                  type="hidden"
+                  name="printReceipt"
+                  value={printReceipt ? "true" : "false"}
+                />
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_180px]">
                   <div>
@@ -406,7 +426,7 @@ export default function RegisterSubscriptionPaymentModal({
                       step={1}
                       value={amount}
                       onChange={(event) => setAmount(event.target.value)}
-                      className={fieldErrorClass(Boolean(state.errors?.amount))}
+                      className={fieldClass(Boolean(state.errors?.amount))}
                       placeholder="0"
                       required
                     />
@@ -432,9 +452,7 @@ export default function RegisterSubscriptionPaymentModal({
                             type="button"
                             onClick={() =>
                               setAmount(
-                                String(
-                                  Math.max(1, Math.floor(pendingAmount / 2))
-                                )
+                                String(Math.max(1, Math.floor(pendingAmount / 2)))
                               )
                             }
                             className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-300"
@@ -442,6 +460,14 @@ export default function RegisterSubscriptionPaymentModal({
                             Mitad
                           </button>
                         ) : null}
+
+                        <button
+                          type="button"
+                          onClick={() => setAmount("")}
+                          className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-300"
+                        >
+                          Limpiar
+                        </button>
                       </div>
                     ) : null}
                   </div>
@@ -460,7 +486,7 @@ export default function RegisterSubscriptionPaymentModal({
                       type="datetime-local"
                       value={paidAt}
                       onChange={(event) => setPaidAt(event.target.value)}
-                      className={fieldErrorClass(Boolean(state.errors?.paidAt))}
+                      className={fieldClass(Boolean(state.errors?.paidAt))}
                       required
                     />
 
@@ -476,8 +502,6 @@ export default function RegisterSubscriptionPaymentModal({
                   <label className="mb-1.5 block text-sm font-medium text-zinc-700">
                     Método de pago
                   </label>
-
-                  <input type="hidden" name="method" value={method} />
 
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     <MethodOption
@@ -524,7 +548,7 @@ export default function RegisterSubscriptionPaymentModal({
                       type="text"
                       value={reference}
                       onChange={(event) => setReference(event.target.value)}
-                      className={fieldErrorClass(Boolean(state.errors?.reference))}
+                      className={fieldClass(Boolean(state.errors?.reference))}
                       placeholder="Ej. comprobante, transferencia, recibo"
                     />
 
@@ -548,7 +572,7 @@ export default function RegisterSubscriptionPaymentModal({
                       name="notes"
                       value={notes}
                       onChange={(event) => setNotes(event.target.value)}
-                      className={textareaErrorClass(Boolean(state.errors?.notes))}
+                      className={textareaClass(Boolean(state.errors?.notes))}
                       placeholder="Observación opcional"
                     />
 
@@ -560,16 +584,60 @@ export default function RegisterSubscriptionPaymentModal({
                   </div>
                 </div>
 
+                <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2.5">
+                  <input
+                    type="checkbox"
+                    checked={printReceipt}
+                    onChange={(event) => setPrintReceipt(event.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-300"
+                  />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <Receipt className="h-4 w-4 text-zinc-500" />
+                      <p className="text-sm font-medium text-zinc-900">
+                        Generar recibo
+                      </p>
+                    </div>
+                    <p className="mt-0.5 text-xs text-zinc-500">
+                      Déjalo activo para enviar el comprobante a impresión al
+                      registrar el abono.
+                    </p>
+                  </div>
+                </label>
+
                 {state.errors?.subscriptionId ? (
                   <div className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                     {state.errors.subscriptionId}
                   </div>
                 ) : null}
 
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500">
+                    Resumen
+                  </p>
+
+                  <div className="mt-2 space-y-1 text-sm text-zinc-700">
+                    <p>
+                      <span className="font-medium">Abono:</span>{" "}
+                      {safeAmountNumber > 0
+                        ? formatCurrency(safeAmountNumber)
+                        : "—"}
+                    </p>
+                    <p>
+                      <span className="font-medium">Saldo estimado después:</span>{" "}
+                      {formatCurrency(estimatedPendingAfterPayment)}
+                    </p>
+                    <p>
+                      <span className="font-medium">Recibo:</span>{" "}
+                      {printReceipt ? "Sí" : "No"}
+                    </p>
+                  </div>
+                </div>
+
                 <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:items-center sm:justify-between">
                   <div className="text-xs text-zinc-500">
-                    {amountNumber > 0 ? (
-                      <>Se registrará un abono de {formatCurrency(amountNumber)}.</>
+                    {safeAmountNumber > 0 ? (
+                      <>Se registrará un abono de {formatCurrency(safeAmountNumber)}.</>
                     ) : (
                       <>Ingresa el valor del abono.</>
                     )}
@@ -584,7 +652,9 @@ export default function RegisterSubscriptionPaymentModal({
                       Cancelar
                     </button>
 
-                    <SubmitButton disabled={!subscription || amountNumber <= 0} />
+                    <SubmitButton
+                      disabled={!subscription || safeAmountNumber <= 0}
+                    />
                   </div>
                 </div>
               </form>

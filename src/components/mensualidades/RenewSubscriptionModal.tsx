@@ -10,7 +10,7 @@ import {
   CalendarDays,
   Landmark,
   Loader2,
-  RefreshCw,
+  PencilLine,
   Smartphone,
   Wallet,
   X,
@@ -77,10 +77,18 @@ function buildBogotaDateTimeLocalValue(date = new Date()) {
   return formatted.replace(" ", "T");
 }
 
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
+function parseIsoToBogotaDateTimeLocalValue(value?: string | null) {
+  if (!value) {
+    return buildBogotaDateTimeLocalValue();
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return buildBogotaDateTimeLocalValue();
+  }
+
+  return buildBogotaDateTimeLocalValue(date);
 }
 
 function getPaymentMethodLabel(method: PaymentMethod) {
@@ -113,18 +121,19 @@ function getPaymentMethodIcon(method: PaymentMethod) {
   }
 }
 
-function fieldClass(hasError: boolean) {
+function fieldClass(hasError: boolean, disabled = false) {
   return [
     "h-10 w-full rounded-2xl border bg-white px-3 text-sm text-zinc-900 outline-none transition",
     hasError
       ? "border-red-300 ring-2 ring-red-100"
       : "border-zinc-200 focus:border-zinc-300",
+    disabled ? "cursor-not-allowed bg-zinc-100 text-zinc-500" : "",
   ].join(" ");
 }
 
 function textareaClass(hasError: boolean) {
   return [
-    "min-h-[90px] w-full resize-none rounded-2xl border bg-white px-3 py-2.5 text-sm text-zinc-900 outline-none transition",
+    "min-h-[96px] w-full resize-none rounded-2xl border bg-white px-3 py-2.5 text-sm text-zinc-900 outline-none transition",
     hasError
       ? "border-red-300 ring-2 ring-red-100"
       : "border-zinc-200 focus:border-zinc-300",
@@ -161,22 +170,29 @@ function MethodOption({
   method,
   selected,
   onSelect,
+  disabled,
 }: {
   method: PaymentMethod;
   selected: boolean;
   onSelect: (method: PaymentMethod) => void;
+  disabled?: boolean;
 }) {
   const Icon = getPaymentMethodIcon(method);
 
   return (
     <button
       type="button"
-      onClick={() => onSelect(method)}
+      onClick={() => {
+        if (disabled) return;
+        onSelect(method);
+      }}
+      disabled={disabled}
       className={[
         "flex h-10 items-center justify-center gap-2 rounded-2xl border px-3 text-sm font-medium transition",
         selected
           ? "border-zinc-900 bg-zinc-900 text-white"
           : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300",
+        disabled ? "cursor-not-allowed opacity-50" : "",
       ].join(" ")}
     >
       <Icon className="h-4 w-4" />
@@ -202,12 +218,12 @@ function SubmitButton({ disabled }: { disabled: boolean }) {
       {pending ? (
         <>
           <Loader2 className="h-4 w-4 animate-spin" />
-          Renovando...
+          Guardando...
         </>
       ) : (
         <>
-          <RefreshCw className="h-4 w-4" />
-          Renovar mensualidad
+          <PencilLine className="h-4 w-4" />
+          Guardar cambios
         </>
       )}
     </button>
@@ -219,7 +235,7 @@ export default function RenewSubscriptionModal({
   vehicle,
   holder,
   action,
-  triggerLabel = "Renovar mensualidad",
+  triggerLabel = "Reajustar mensualidad",
   className,
   onRenewed,
 }: RenewSubscriptionModalProps) {
@@ -229,45 +245,56 @@ export default function RenewSubscriptionModal({
 
   const canOpen = Boolean(subscription);
 
-  const defaultDates = useMemo(() => {
-    const start = new Date();
-    const end = addDays(start, 30);
+  const defaultValues = useMemo(() => {
+    const now = new Date();
 
     return {
-      startAt: buildBogotaDateTimeLocalValue(start),
-      endAt: buildBogotaDateTimeLocalValue(end),
+      startAt: parseIsoToBogotaDateTimeLocalValue(subscription?.startAtIso),
+      endAt: parseIsoToBogotaDateTimeLocalValue(subscription?.endAtIso),
+      amount: subscription ? String(subscription.amount) : "",
+      initialPaymentAmount: "",
+      initialPaymentPaidAt: buildBogotaDateTimeLocalValue(now),
+      initialPaymentMethod: PaymentMethod.CASH,
+      reference: "",
+      notes: subscription?.notes ?? "",
+      printReceipt: true,
     };
-  }, []);
+  }, [subscription]);
 
-  const [startAt, setStartAt] = useState(defaultDates.startAt);
-  const [endAt, setEndAt] = useState(defaultDates.endAt);
-  const [amount, setAmount] = useState(
-    subscription ? String(subscription.amount) : ""
+  const [startAt, setStartAt] = useState(defaultValues.startAt);
+  const [endAt, setEndAt] = useState(defaultValues.endAt);
+  const [amount, setAmount] = useState(defaultValues.amount);
+  const [initialPaymentAmount, setInitialPaymentAmount] = useState(
+    defaultValues.initialPaymentAmount
   );
-  const [initialPaymentAmount, setInitialPaymentAmount] = useState("");
   const [initialPaymentPaidAt, setInitialPaymentPaidAt] = useState(
-    buildBogotaDateTimeLocalValue()
+    defaultValues.initialPaymentPaidAt
   );
   const [initialPaymentMethod, setInitialPaymentMethod] =
-    useState<PaymentMethod>(PaymentMethod.CASH);
-  const [reference, setReference] = useState("");
-  const [notes, setNotes] = useState(subscription?.notes ?? "");
+    useState<PaymentMethod>(defaultValues.initialPaymentMethod);
+  const [reference, setReference] = useState(defaultValues.reference);
+  const [notes, setNotes] = useState(defaultValues.notes);
+  const [printReceipt, setPrintReceipt] = useState(defaultValues.printReceipt);
 
   const initialPaymentNumber = Number(initialPaymentAmount || 0);
-  const hasInitialPayment = initialPaymentNumber > 0;
+  const hasInitialPayment = Number.isFinite(initialPaymentNumber)
+    ? initialPaymentNumber > 0
+    : false;
+
   const amountNumber = Number(amount || 0);
 
   const resetForm = React.useCallback(() => {
     const now = new Date();
 
-    setStartAt(buildBogotaDateTimeLocalValue(now));
-    setEndAt(buildBogotaDateTimeLocalValue(addDays(now, 30)));
+    setStartAt(parseIsoToBogotaDateTimeLocalValue(subscription?.startAtIso));
+    setEndAt(parseIsoToBogotaDateTimeLocalValue(subscription?.endAtIso));
     setAmount(subscription ? String(subscription.amount) : "");
     setInitialPaymentAmount("");
     setInitialPaymentPaidAt(buildBogotaDateTimeLocalValue(now));
     setInitialPaymentMethod(PaymentMethod.CASH);
     setReference("");
     setNotes(subscription?.notes ?? "");
+    setPrintReceipt(true);
   }, [subscription]);
 
   useEffect(() => {
@@ -321,7 +348,7 @@ export default function RenewSubscriptionModal({
         ].join(" ")}
         title={canOpen ? triggerLabel : "No hay mensualidad base"}
       >
-        <RefreshCw className="h-4 w-4" />
+        <PencilLine className="h-4 w-4" />
         {canOpen ? triggerLabel : "Sin base"}
       </button>
 
@@ -334,7 +361,7 @@ export default function RenewSubscriptionModal({
             role="dialog"
             aria-modal="true"
             aria-labelledby="renew-subscription-title"
-            className="flex max-h-[80dvh] w-full max-w-2xl flex-col overflow-hidden rounded-[28px] border border-zinc-200 bg-white shadow-2xl"
+            className="flex max-h-[88dvh] w-full max-w-2xl flex-col overflow-hidden rounded-[28px] border border-zinc-200 bg-white shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
@@ -343,7 +370,7 @@ export default function RenewSubscriptionModal({
                   id="renew-subscription-title"
                   className="text-base font-semibold text-zinc-900"
                 >
-                  Renovar mensualidad
+                  Reajustar mensualidad
                 </h2>
                 <p className="mt-0.5 truncate text-sm text-zinc-600">
                   {vehicle.plate} · {holder?.fullName ?? "Sin titular"}
@@ -392,6 +419,11 @@ export default function RenewSubscriptionModal({
                 />
               </div>
 
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-700">
+                Aquí puedes ajustar el periodo actual, cambiar el valor y
+                registrar un abono nuevo sin perder el historial existente.
+              </div>
+
               {state.message ? (
                 <div
                   className={[
@@ -416,6 +448,11 @@ export default function RenewSubscriptionModal({
                   name="initialPaymentMethod"
                   value={initialPaymentMethod}
                 />
+                <input
+                  type="hidden"
+                  name="printReceipt"
+                  value={printReceipt ? "true" : "false"}
+                />
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
@@ -423,7 +460,7 @@ export default function RenewSubscriptionModal({
                       htmlFor="renew-subscription-startAt"
                       className="mb-1.5 block text-sm font-medium text-zinc-700"
                     >
-                      Inicio del nuevo periodo
+                      Inicio del periodo
                     </label>
                     <input
                       id="renew-subscription-startAt"
@@ -446,7 +483,7 @@ export default function RenewSubscriptionModal({
                       htmlFor="renew-subscription-endAt"
                       className="mb-1.5 block text-sm font-medium text-zinc-700"
                     >
-                      Fin del nuevo periodo
+                      Fin del periodo
                     </label>
                     <input
                       id="renew-subscription-endAt"
@@ -502,7 +539,7 @@ export default function RenewSubscriptionModal({
                       }}
                       className="h-10 rounded-full border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-700 transition hover:border-zinc-300 hover:text-zinc-950"
                     >
-                      Copiar valor actual
+                      Restaurar valor
                     </button>
                   </div>
                 </div>
@@ -512,11 +549,11 @@ export default function RenewSubscriptionModal({
                     <Wallet className="h-4 w-4 text-zinc-500" />
                     <div>
                       <p className="text-sm font-medium text-zinc-900">
-                        Abono inicial
+                        Abono adicional
                       </p>
                       <p className="text-xs text-zinc-500">
-                        Es opcional. Si lo dejas vacío, la renovación se crea
-                        sin pago inicial.
+                        Opcional. Puedes dejarlo vacío si solo vas a ajustar la
+                        mensualidad.
                       </p>
                     </div>
                   </div>
@@ -527,7 +564,7 @@ export default function RenewSubscriptionModal({
                         htmlFor="renew-subscription-initialPaymentAmount"
                         className="mb-1.5 block text-sm font-medium text-zinc-700"
                       >
-                        Valor del abono inicial
+                        Valor del abono
                       </label>
                       <input
                         id="renew-subscription-initialPaymentAmount"
@@ -605,7 +642,8 @@ export default function RenewSubscriptionModal({
                         }
                         disabled={!hasInitialPayment}
                         className={fieldClass(
-                          Boolean(state.errors?.initialPaymentPaidAt)
+                          Boolean(state.errors?.initialPaymentPaidAt),
+                          !hasInitialPayment
                         )}
                       />
                       {state.errors?.initialPaymentPaidAt ? (
@@ -618,7 +656,7 @@ export default function RenewSubscriptionModal({
 
                   <div className="mt-3">
                     <label className="mb-1.5 block text-sm font-medium text-zinc-700">
-                      Método del abono inicial
+                      Método del abono
                     </label>
 
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -626,11 +664,13 @@ export default function RenewSubscriptionModal({
                         method={PaymentMethod.CASH}
                         selected={initialPaymentMethod === PaymentMethod.CASH}
                         onSelect={setInitialPaymentMethod}
+                        disabled={!hasInitialPayment}
                       />
                       <MethodOption
                         method={PaymentMethod.NEQUI}
                         selected={initialPaymentMethod === PaymentMethod.NEQUI}
                         onSelect={setInitialPaymentMethod}
+                        disabled={!hasInitialPayment}
                       />
                       <MethodOption
                         method={PaymentMethod.TRANSFER}
@@ -638,11 +678,13 @@ export default function RenewSubscriptionModal({
                           initialPaymentMethod === PaymentMethod.TRANSFER
                         }
                         onSelect={setInitialPaymentMethod}
+                        disabled={!hasInitialPayment}
                       />
                       <MethodOption
                         method={PaymentMethod.OTHER}
                         selected={initialPaymentMethod === PaymentMethod.OTHER}
                         onSelect={setInitialPaymentMethod}
+                        disabled={!hasInitialPayment}
                       />
                     </div>
 
@@ -666,7 +708,10 @@ export default function RenewSubscriptionModal({
                       type="text"
                       value={reference}
                       onChange={(event) => setReference(event.target.value)}
-                      className={fieldClass(Boolean(state.errors?.reference))}
+                      className={fieldClass(
+                        Boolean(state.errors?.reference),
+                        !hasInitialPayment
+                      )}
                       placeholder="Ej. recibo, transferencia, comprobante"
                       disabled={!hasInitialPayment}
                     />
@@ -676,6 +721,23 @@ export default function RenewSubscriptionModal({
                       </p>
                     ) : null}
                   </div>
+
+                  <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={printReceipt}
+                      onChange={(event) => setPrintReceipt(event.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-300"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-zinc-900">
+                        Generar recibo
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        Se recomienda dejarlo activo cuando registres un abono.
+                      </p>
+                    </div>
+                  </label>
                 </div>
 
                 <div>
@@ -683,7 +745,7 @@ export default function RenewSubscriptionModal({
                     htmlFor="renew-subscription-notes"
                     className="mb-1.5 block text-sm font-medium text-zinc-700"
                   >
-                    Notas del nuevo periodo
+                    Notas del periodo
                   </label>
                   <textarea
                     id="renew-subscription-notes"
@@ -720,16 +782,21 @@ export default function RenewSubscriptionModal({
                       {amountNumber > 0 ? formatCurrency(amountNumber) : "—"}
                     </p>
                     <p>
-                      <span className="font-medium">Abono inicial:</span>{" "}
+                      <span className="font-medium">Abono nuevo:</span>{" "}
                       {hasInitialPayment
                         ? formatCurrency(initialPaymentNumber)
                         : "Sin abono"}
                     </p>
                     <p>
-                      <span className="font-medium">Saldo inicial:</span>{" "}
-                      {amountNumber > 0
+                      <span className="font-medium">Saldo estimado luego del cambio:</span>{" "}
+                      {subscription && amountNumber > 0
                         ? formatCurrency(
-                            Math.max(amountNumber - initialPaymentNumber, 0)
+                            Math.max(
+                              amountNumber -
+                                subscription.totalPaid -
+                                (hasInitialPayment ? initialPaymentNumber : 0),
+                              0
+                            )
                           )
                         : "—"}
                     </p>
@@ -738,8 +805,8 @@ export default function RenewSubscriptionModal({
 
                 <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:items-center sm:justify-between">
                   <div className="text-xs text-zinc-500">
-                    Se creará un nuevo periodo reutilizando el vehículo y el
-                    titular actuales.
+                    Se actualizará la mensualidad actual conservando el historial
+                    y los pagos anteriores.
                   </div>
 
                   <div className="flex items-center justify-end gap-2">
